@@ -3,6 +3,8 @@
 // data layer (queries.js) does the thinking, this file just paints.
 import * as db from './db.js';
 import * as ingest from './ingest.js';
+import * as lock from './lock.js';
+import * as notify from './notify.js';
 import { applyFilter, summarize, series, relativeTime, rangeStart, insights, detectRecurring, DAY } from './queries.js';
 import { donut, bars, sparkline, esc } from './charts.js';
 import { formatMoney, splitMoney, toMinor } from './money.js';
@@ -399,6 +401,7 @@ async function onClick(e) {
     case 'add': openAddModal(); break;
     case 'paste': openPasteModal(); break;
     case 'menu': openMenuModal(); break;
+    case 'settings': openSettingsModal(); break;
     case 'edit': openEditModal(id); break;
     case 'filtertxn': state.view = 'transactions'; state.category = t.dataset.cat; state.search = ''; render(); break;
     case 'addfrom': { const m = await db.get('raw_messages', id); openAddModal(m?.body); break; }
@@ -524,12 +527,51 @@ function openMenuModal() {
     <div class="modal-body" style="gap:8px">
       <button class="btn" data-view="insights">📊 Insights & budgets</button>
       <button class="btn" data-view="unparsed">⚠ Needs review</button>
+      <button class="btn" data-action="settings">🔒 Privacy & alerts</button>
       <button class="btn" data-action="paste">Paste a bank alert</button>
       <button class="btn" data-action="import">Import file (.json / .csv)</button>
       <button class="btn" data-action="sample">Load demo data</button>
       <button class="btn" data-action="export">Export my data</button>
       <button class="btn" data-action="erase" style="color:var(--negative)">Erase all data</button>
     </div>`);
+}
+
+async function openSettingsModal() {
+  const lockOn = await lock.isEnabled();
+  const np = await notify.getPrefs();
+  openModal(`<form id="settingsForm">
+    <div class="modal-head"><h3>Privacy & alerts</h3><button class="btn ghost icon" type="button" data-action="close" aria-label="Close">✕</button></div>
+    <div class="modal-body">
+      <div class="lab">App lock
+        ${lockOn
+          ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill" style="color:var(--positive);background:var(--pos-soft)">PIN on</span>
+             <button type="button" class="btn sm" id="changePin">Change PIN</button>
+             <button type="button" class="btn sm" id="offPin">Turn off</button></div>`
+          : `<div style="display:flex;gap:8px;flex-wrap:wrap"><input class="input mono" id="newPin" type="password" inputmode="numeric" maxlength="12" placeholder="Set a 4–12 digit PIN" style="max-width:220px">
+             <button type="button" class="btn sm primary" id="setPinBtn">Enable</button></div>`}
+        <span class="hint">Locks the app on this device and on every return to background. It's an access gate, not encryption — recovery is via your Export backup.</span>
+      </div>
+      <label class="lab" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="notifEnabled" ${np.enabled ? 'checked' : ''}> Spending alerts (large transactions & budgets)</label>
+      <label class="lab">Large-transaction alert above (₹)<input class="input mono" id="largeTxn" type="number" min="0" step="500" value="${(np.largeTxn || 500000) / 100}"></label>
+    </div>
+    <div class="modal-foot"><button class="btn primary" type="submit">Done</button></div>
+  </form>`);
+  const m = $('#modal');
+  m.querySelector('#setPinBtn')?.addEventListener('click', async () => {
+    const v = m.querySelector('#newPin').value.trim();
+    if (!/^\d{4,12}$/.test(v)) return toast('PIN must be 4–12 digits');
+    await lock.setPin(v); toast('App lock enabled'); openSettingsModal();
+  });
+  m.querySelector('#offPin')?.addEventListener('click', async () => { await lock.disable(); toast('App lock off'); openSettingsModal(); });
+  m.querySelector('#changePin')?.addEventListener('click', async () => { await lock.disable(); openSettingsModal(); });
+  $('#settingsForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const enabled = m.querySelector('#notifEnabled').checked;
+    const largeTxn = Math.round((parseFloat(m.querySelector('#largeTxn').value) || 5000) * 100);
+    if (enabled && !(await notify.requestPermission())) toast('Allow notifications in your browser/system settings');
+    await notify.setPrefs({ ...np, enabled, largeTxn });
+    closeModal(); toast('Saved');
+  });
 }
 
 // ── data actions ────────────────────────────────────────────────────────────

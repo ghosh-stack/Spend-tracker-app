@@ -1,12 +1,13 @@
 // Service worker: precache the app shell so SpendLens installs and runs offline.
 // The /ingest bridge is never cached (it must hit the live local server or fail
 // gracefully). Bump CACHE on any shell change to invalidate old copies.
-const CACHE = 'spendlens-v2';
+const CACHE = 'spendlens-v3';
 const SHELL = [
   '.', 'index.html', 'manifest.webmanifest',
   'css/styles.css',
   'js/app.js', 'js/ui.js', 'js/db.js', 'js/ingest.js', 'js/parser.js',
   'js/rules.js', 'js/money.js', 'js/queries.js', 'js/charts.js',
+  'js/lock.js', 'js/notify.js',
   'data/sample-notifications.json',
   'icons/icon.svg',
 ];
@@ -42,5 +43,16 @@ self.addEventListener('fetch', (e) => {
           return res;
         }).catch(() => cached)
     )
+  );
+});
+
+// Focus (or open) the app when a local notification is tapped.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window' }).then((cs) => {
+      if (cs.length) return cs[0].focus();
+      return self.clients.openWindow('.');
+    })
   );
 });

@@ -81,6 +81,18 @@
     </nav>
   </div>
 
+  <div id="lockScreen" class="lock-screen" hidden>
+    <div class="lock-card">
+      <div class="brand-mark" aria-hidden="true">₹</div>
+      <h2>SpendLens is locked</h2>
+      <p class="hint">Enter your PIN to continue.</p>
+      <input id="pinInput" class="input mono" type="password" inputmode="numeric" autocomplete="off" maxlength="12" aria-label="PIN" />
+      <p id="lockMsg" class="hint" aria-live="polite" style="color:var(--negative);min-height:18px;margin:0"></p>
+      <button class="btn primary" id="unlockBtn">Unlock</button>
+      <button class="btn ghost" id="bioBtn" hidden>Use biometric</button>
+    </div>
+  </div>
+
   <dialog id="modal" class="modal"></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 

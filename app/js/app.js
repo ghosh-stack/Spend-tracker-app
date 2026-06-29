@@ -2,6 +2,8 @@
 // ingestion bridge, register the service worker for offline/install.
 import * as db from './db.js';
 import * as ingest from './ingest.js';
+import * as lock from './lock.js';
+import * as notify from './notify.js';
 import { initUI, wireGlobals, render, setLive, setUnparsedBadge } from './ui.js';
 
 // Theme is a UI preference (not financial data) — fine to persist locally.
@@ -23,12 +25,18 @@ async function detectBridge() {
 
 async function main() {
   await db.openDB();
+  if (await lock.isEnabled()) await lock.gate(); // block until unlocked — no data renders first
   initUI();
   wireGlobals();
   ingest.onChange(refreshBadge);
+  ingest.onChange((evt) => { if (evt.type === 'transaction' && evt.txn) notify.onTransaction(evt.txn); });
   await render();
   await refreshBadge();
   detectBridge();
+
+  // Lock again when the app goes to the background (immediate by default).
+  document.addEventListener('visibilitychange', () => { if (document.hidden) lock.markHidden(); else lock.maybeRelock(); });
+  window.addEventListener('focus', () => lock.maybeRelock());
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
