@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Secrets — never commit. Use .env (copied from .env.example).
+.env
+.env.*
+!.env.example
+*.secret
+
+# Local credential / token stores written at runtime
+adapters/**/credentials.json
+adapters/**/token.json
+
+# Build output (optional native wrappers)
+dist/
+src-tauri/target/
+android/app/build/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs / coverage
+*.log
+coverage/
+
+# Local machine-specific Claude Code settings (keep launch.json shared)
+.claude/settings.local.json
+
+# Orientation/input material, not part of the source
+ponytail-main.zip

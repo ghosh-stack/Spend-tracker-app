@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SpendLens">
+  <rect width="512" height="512" rx="112" fill="#0b1014"/>
+  <!-- ascending spend bars -->
+  <g fill="#34d6a0">
+    <rect x="150" y="300" width="40" height="74" rx="12"/>
+    <rect x="214" y="252" width="40" height="122" rx="12"/>
+    <rect x="278" y="196" width="40" height="178" rx="12"/>
+  </g>
+  <!-- lens / magnifier framing the trend -->
+  <circle cx="248" cy="262" r="132" fill="none" stroke="#eef3f6" stroke-opacity="0.16" stroke-width="14"/>
+  <circle cx="338" cy="176" r="40" fill="#0b1014" stroke="#34d6a0" stroke-width="16"/>
+  <text x="338" y="192" text-anchor="middle" font-family="system-ui, sans-serif" font-size="44" font-weight="700" fill="#34d6a0">₹</text>
+</svg>

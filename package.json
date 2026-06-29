@@ -1,0 +1,17 @@
+{
+  "name": "spendlens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first, cross-platform expense tracker that parses bank UPI/card notifications into a live, categorized dashboard.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node tools/serve.js",
+    "serve": "node tools/serve.js",
+    "test": "node --test tests/"
+  },
+  "comment": "The PWA in /app has ZERO runtime dependencies. The email ingestion adapter has its own package.json in /adapters/email-imap (install only if you use it). The dev/bridge server uses only the Node standard library."
+}

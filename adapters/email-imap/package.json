@@ -1,0 +1,14 @@
+{
+  "name": "spendlens-email-imap",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Optional IMAP → SpendLens ingestion adapter. Forwards bank emails to the local app.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "scripts": { "start": "node poller.js" },
+  "dependencies": {
+    "imapflow": "^1.0.164",
+    "mailparser": "^3.7.1"
+  }
+}
