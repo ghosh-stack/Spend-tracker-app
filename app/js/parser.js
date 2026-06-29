@@ -85,6 +85,25 @@ export function normalizeMerchant(raw) {
   return raw.replace(/\s+/g, ' ').replace(/[.,;:]+$/, '').trim();
 }
 
+// ── cross-channel matching helpers (used by ingest dedupe/merge) ──────────────
+export const normalizeRef = (ref) => String(ref || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+export const normMerchantKey = (m) => String(m || '').toLowerCase().replace(/\s+/g, ' ').replace(/[.,;:]+$/, '').trim();
+const vpaTokens = (m) => normMerchantKey(m).split(/[@.\-_/\s]+/).filter(Boolean);
+
+/** Do two merchant strings plausibly name the same payee? Empty = no disagreement. */
+export function merchantAgree(a, b) {
+  const ka = normMerchantKey(a), kb = normMerchantKey(b);
+  if (!ka || !kb) return true;        // one side missing -> not a conflict
+  if (ka === kb) return true;
+  const ta = new Set(vpaTokens(a));   // 'swiggy@hdfc' and 'SWIGGY LIMITED' share token 'swiggy'
+  return vpaTokens(b).some((t) => t.length >= 3 && ta.has(t));
+}
+/** Both present AND no agreement -> a genuine conflict (keep both, flag). */
+export const merchantConflict = (a, b) => {
+  const ka = normMerchantKey(a), kb = normMerchantKey(b);
+  return !!ka && !!kb && !merchantAgree(a, b);
+};
+
 const catReCache = new Map();
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function catRe(match) {

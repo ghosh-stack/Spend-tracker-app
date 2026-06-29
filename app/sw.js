@@ -1,7 +1,7 @@
 // Service worker: precache the app shell so SpendLens installs and runs offline.
 // The /ingest bridge is never cached (it must hit the live local server or fail
 // gracefully). Bump CACHE on any shell change to invalidate old copies.
-const CACHE = 'spendlens-v1';
+const CACHE = 'spendlens-v2';
 const SHELL = [
   '.', 'index.html', 'manifest.webmanifest',
   'css/styles.css',

@@ -2,8 +2,18 @@
 // account -> dedupe at transaction -> store atomically -> notify the UI.
 // The pure extraction lives in parser.js; this file is the side-effecting glue.
 import * as db from './db.js';
-import { parseMessage } from './parser.js';
+import { parseMessage, buildDedupeKey, normalizeRef, merchantConflict } from './parser.js';
 import { PARSE_RULES, CATEGORIZE_RULES } from './rules.js';
+
+// Same transaction can arrive via SMS and email hours apart; collapse within this window.
+const CROSS_CHANNEL_WINDOW_MS = 3 * 60 * 60 * 1000;
+const channelOf = (source) =>
+  source === 'android-sms' || source === 'sms' ? 'sms'
+  : source === 'email-imap' || source === 'email' ? 'email'
+  : source === 'android-notification' ? 'push'
+  : source === 'manual' ? 'manual'
+  : source === 'import-csv' ? 'import'
+  : (source || 'unknown');
 
 // ── tiny pub/sub (one file, no state-management library — rung 1) ─────────────
 const listeners = new Set();
@@ -101,23 +111,86 @@ export async function ingestRaw(msg) {
   txn.rawMessageId = id;
   txn.createdAt = Date.now();
   txn.notes = '';
+  txn.source = source;
+  txn.channel = channelOf(source);
+  txn.sender = sender;
   // A generic-parsed txn with no ref AND no account has only a weak minute-bucket
   // key; fold in the content hash so two distinct unknown-bank spends in the same
   // minute don't collide and silently drop one.
   if (!txn.ref && !txn.accountLast4) txn.dedupeKey += '|' + hash.slice(0, 16);
 
-  // Transaction-level dedupe: the DB's unique by_dedupeKey index is the gate.
-  const added = await db.addUnique('transactions', txn);
+  // Cross-channel match → merge or insert. Ingestion is serial (the poll awaits
+  // each message; manual/paste is one at a time), so a read-decide-write with the
+  // unique by_dedupeKey index as the final backstop is correct and avoids the
+  // IndexedDB auto-commit pitfall of spanning reads+writes in one transaction.
+  // Candidates = every txn at the same amount (amounts are sparse, so this is small).
+  const cands = await db.getAllByIndex('transactions', 'by_amount', txn.amount);
+  const existing = cands.find((c) => c.id !== txn.id && classifyMatch(c, txn) === 'merge')
+    || cands.find((c) => (c.mergedKeys || []).includes(txn.dedupeKey)); // a 3rd copy of an already-merged txn
+
+  if (existing) {
+    const merged = mergeInto(existing, txn, { id, source, sender });
+    await db.put('transactions', merged);
+    await db.put('raw_messages', rawRec('parsed', existing.id));
+    emit({ type: 'transaction', txn: merged, merged: true });
+    return 'merged';
+  }
+
+  const soft = cands.find((c) => c.id !== txn.id && classifyMatch(c, txn) === 'soft');
+  if (soft) txn.possibleDuplicateOf = soft.id; // Tier 3: likely dup, keep both + flag for review
+  txn.sources = [{ channel: txn.channel, source, sender, rawMessageId: id, ts: txn.ts, ref: txn.ref }];
+  txn.channels = [txn.channel];
+  txn.mergedKeys = [txn.dedupeKey];
+
+  const added = await db.addUnique('transactions', txn); // unique by_dedupeKey is the exact-dup gate
   if (!added.ok) {
     await db.put('raw_messages', rawRec('duplicate'));
     return 'duplicate-txn';
   }
-
-  // Flip the source message to parsed (the txn is already committed; this only
-  // updates provenance, so a crash between the two leaves a re-derivable record).
   await db.put('raw_messages', rawRec('parsed', txn.id));
   emit({ type: 'transaction', txn });
   return 'parsed';
+}
+
+// ── cross-channel dedupe/merge internals ──────────────────────────────────────
+// 'merge' (same txn, fold together) | 'soft' (likely dup, keep both + flag) | null
+function classifyMatch(existing, txn) {
+  if (existing.amount !== txn.amount || existing.direction !== txn.direction) return null;
+  // Tier 1: exact bank reference — strongest cross-channel signal (UPI RRN in both).
+  if (txn.ref && existing.ref && normalizeRef(txn.ref) === normalizeRef(existing.ref)) return 'merge';
+  // Tiers 2/3: same account tail, different channel, within the time window.
+  const sameTail = existing.accountId === txn.accountId
+    || (!!existing.accountLast4 && existing.accountLast4 === txn.accountLast4);
+  const crossChannel = (existing.channel || existing.source) !== (txn.channel || txn.source);
+  const inWindow = Math.abs(existing.ts - txn.ts) <= CROSS_CHANNEL_WINDOW_MS;
+  if (!(sameTail && crossChannel && inWindow)) return null;
+  return merchantConflict(existing.merchant, txn.merchant) ? 'soft' : 'merge';
+}
+
+const dedupBy = (arr, key) => {
+  const seen = new Set();
+  return arr.filter((x) => { const k = key(x); return seen.has(k) ? false : (seen.add(k), true); });
+};
+
+// Fold the new parse into the existing row; the richer source fills gaps.
+function mergeInto(existing, txn, msg) {
+  const E = { ...existing };
+  E.ts = Math.min(E.ts, txn.ts); // earliest is closest to the real swipe time
+  const merchScore = (m) => (!m ? 0 : m.includes('@') ? 1 : 2 + m.length / 100); // human name beats VPA
+  if (merchScore(txn.merchant) > merchScore(E.merchant)) { E.merchant = txn.merchant; E.rawMerchant = txn.rawMerchant; }
+  if (!E.ref && txn.ref) E.ref = txn.ref;
+  if (E.method === 'other' && txn.method !== 'other') E.method = txn.method;
+  if (!E.bankKey && txn.bankKey) E.bankKey = txn.bankKey;
+  if (E.categorySource !== 'manual' && txn.categorySource === 'rule' && E.categorySource !== 'rule') {
+    E.category = txn.category; E.categorySource = 'rule';
+  }
+  const prior = E.sources || [{ channel: existing.channel || existing.source, source: existing.source, sender: existing.sender || '', rawMessageId: existing.rawMessageId, ts: existing.ts, ref: existing.ref }];
+  E.sources = dedupBy([...prior, { channel: txn.channel, source: msg.source, sender: msg.sender || '', rawMessageId: msg.id, ts: txn.ts, ref: txn.ref }], (s) => s.rawMessageId);
+  E.channels = [...new Set(E.sources.map((s) => s.channel))].sort();
+  E.mergedKeys = [...new Set([...(E.mergedKeys || [existing.dedupeKey]), txn.dedupeKey])];
+  E.dedupeKey = buildDedupeKey(E); // recompute from best fields (same primary key row)
+  E.mergedAt = Date.now();
+  return E;
 }
 
 /** Manual paste path: parse free text the user pasted. */
@@ -133,6 +206,7 @@ export async function addManualTxn({ amount, direction = 'debit', merchant = '',
     amount, currency: 'INR', direction, ts,
     merchant, rawMerchant: merchant, category, categorySource: 'manual',
     ref: '', method, bankKey: '', accountLast4: '',
+    source: 'manual', channel: 'manual', sender: '', sources: [], channels: ['manual'],
     dedupeKey: `manual|${uuid()}`, createdAt: Date.now(), notes,
   };
   await db.put('transactions', txn);
@@ -140,19 +214,51 @@ export async function addManualTxn({ amount, direction = 'debit', merchant = '',
   return txn;
 }
 
-/** User override of a category — never re-touched by rules afterward. */
-export async function recategorize(txnId, category) {
+/**
+ * User override of a category. Also LEARNS: persists a user categorize rule for
+ * this merchant and applies it to the merchant's other non-manual transactions,
+ * so categorizing once sticks everywhere. Returns how many others were updated.
+ */
+export async function recategorize(txnId, category, { learn = true } = {}) {
   const txn = await db.get('transactions', txnId);
-  if (!txn) return;
+  if (!txn) return { applied: 0 };
   txn.category = category;
   txn.categorySource = 'manual';
   await db.put('transactions', txn);
-  emit({ type: 'recategorize', txn });
+
+  let applied = 0;
+  const key = (txn.rawMerchant || '').trim().toLowerCase();
+  if (learn && key.length >= 3) {
+    await db.put('rules', {
+      id: 'user-cat:' + key, kind: 'categorize', match: key, categoryId: category,
+      bankKey: '*', priority: 1, enabled: true, builtin: false, createdAt: Date.now(),
+    });
+    _rules = null; // bust the merged-rules cache so the learned rule takes effect
+    for (const t of await db.getAll('transactions')) {
+      if (t.id !== txnId && t.categorySource !== 'manual' &&
+          (t.rawMerchant || '').trim().toLowerCase() === key && t.category !== category) {
+        t.category = category; t.categorySource = 'rule';
+        await db.put('transactions', t);
+        applied++;
+      }
+    }
+  }
+  emit({ type: 'recategorize', txn, applied });
+  return { applied, merchant: txn.merchant };
 }
 
 export async function deleteTxn(txnId) {
   await db.del('transactions', txnId);
   emit({ type: 'delete', id: txnId });
+}
+
+/** Patch a transaction (notes, exclude-from-spend, possibleDuplicateOf clear). */
+export async function updateTxn(txnId, patch) {
+  const txn = await db.get('transactions', txnId);
+  if (!txn) return;
+  Object.assign(txn, patch);
+  await db.put('transactions', txn);
+  emit({ type: 'update', txn });
 }
 
 // ── live ingestion bridge ─────────────────────────────────────────────────────
@@ -174,7 +280,7 @@ export function startLivePoll(intervalMs = 4000) {
       const { messages } = await res.json().catch(() => ({ messages: [] }));
       let n = 0;
       for (const m of messages || []) {
-        try { if ((await ingestRaw(m)) === 'parsed') n++; }
+        try { const r = await ingestRaw(m); if (r === 'parsed' || r === 'merged') n++; }
         catch (e) { console.error('ingest error', e); } // skip the bad one, keep the batch
       }
       if (n) emit({ type: 'batch', count: n });

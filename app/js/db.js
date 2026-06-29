@@ -3,7 +3,7 @@
 // is enforced by UNIQUE indexes, so the DB rejects duplicates for us (rung 4)
 // instead of a scan-and-compare loop in JS.
 const DB_NAME = 'spendlens';
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 
 const SCHEMA = {
   transactions: {
@@ -14,6 +14,8 @@ const SCHEMA = {
       ['by_category', 'category'],
       ['by_dedupeKey', 'dedupeKey', { unique: true }],
       ['by_account_ts', ['accountId', 'ts']],
+      ['by_amount', 'amount'], // cross-channel dedupe candidate lookup when no account resolved
+      ['by_channels', 'channels', { multiEntry: true }], // "arrived via both SMS + email"
     ],
   },
   accounts: { keyPath: 'id', indexes: [['by_bankKey', 'bankKey']] },
@@ -29,6 +31,9 @@ const SCHEMA = {
       ['by_source_receivedAt', ['source', 'receivedAt']],
     ],
   },
+  // v2 stores
+  budgets: { keyPath: 'categoryId', indexes: [] }, // { categoryId, monthly (paise) }
+  settings: { keyPath: 'key', indexes: [] },        // { key, value } — pin hash, prefs, watermarks
 };
 
 let _db = null;
@@ -39,11 +44,16 @@ export function openDB() {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
+      const upgradeTx = req.transaction; // the versionchange transaction
       for (const [name, def] of Object.entries(SCHEMA)) {
-        if (db.objectStoreNames.contains(name)) continue;
-        const store = db.createObjectStore(name, { keyPath: def.keyPath });
+        // Create the store if missing, else open the existing one so we can add
+        // any indexes introduced in a later version (the phone may be on v1).
+        const store = db.objectStoreNames.contains(name)
+          ? upgradeTx.objectStore(name)
+          : db.createObjectStore(name, { keyPath: def.keyPath });
+        const have = new Set(store.indexNames);
         for (const [idxName, keyPath, opts] of def.indexes || []) {
-          store.createIndex(idxName, keyPath, opts || {});
+          if (!have.has(idxName)) store.createIndex(idxName, keyPath, opts || {});
         }
       }
     };
@@ -78,6 +88,10 @@ export const del = (store, key) => withStore(store, 'readwrite', (s) => done(s.d
 
 export const getAllByIndex = (store, index, query) =>
   withStore(store, 'readonly', (s) => done(s.index(index).getAll(query)));
+
+// key-value convenience over the settings store
+export const getSetting = async (key, dflt = null) => (await get('settings', key))?.value ?? dflt;
+export const setSetting = (key, value) => put('settings', { key, value });
 
 /**
  * Add a record, returning {ok:true} or {ok:false, duplicate:true} when a UNIQUE

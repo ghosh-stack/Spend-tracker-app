@@ -3,7 +3,7 @@
 // data layer (queries.js) does the thinking, this file just paints.
 import * as db from './db.js';
 import * as ingest from './ingest.js';
-import { applyFilter, summarize, series, relativeTime, rangeStart } from './queries.js';
+import { applyFilter, summarize, series, relativeTime, rangeStart, insights, detectRecurring, DAY } from './queries.js';
 import { donut, bars, sparkline, esc } from './charts.js';
 import { formatMoney, splitMoney, toMinor } from './money.js';
 import { CATEGORIES, categoryById } from './rules.js';
@@ -11,7 +11,7 @@ import { CATEGORIES, categoryById } from './rules.js';
 const $ = (sel) => document.querySelector(sel);
 const RANGES = [['week', 'Week'], ['month', 'Month'], ['quarter', 'Quarter'], ['year', 'Year'], ['all', 'All']];
 
-const state = { view: 'overview', range: 'month', category: null, accountId: null };
+const state = { view: 'overview', range: 'month', category: null, accountId: null, search: '' };
 let _flashId = null; // id of a just-arrived txn, gets the slide-in animation
 
 // previous-period sums (for the delta pills) over the full transaction set
@@ -24,6 +24,7 @@ const sumIncome = (txns, from, to) => txns.reduce((s, t) =>
 export function initUI() {
   document.addEventListener('click', onClick);
   document.addEventListener('change', onChange);
+  document.addEventListener('input', onInput);
   document.addEventListener('keydown', onKeydown);
   window.addEventListener('scroll', () => $('.topbar').classList.toggle('scrolled', window.scrollY > 4), { passive: true });
 
@@ -51,6 +52,8 @@ export async function render() {
   updateContext(accounts.length, summary);
 
   if (state.view === 'unparsed') return renderUnparsed();
+  if (state.view === 'recurring') return renderRecurring(txns, acctMap);
+  if (state.view === 'insights') return renderInsights(txns);
 
   const showCharts = state.view === 'overview';
   $('#filters').style.display = '';
@@ -62,7 +65,14 @@ export async function render() {
     renderKPIs(summary, buckets, prevSpent, prevIncome);
     renderCharts(summary, buckets);
   }
-  renderFeed(filtered, acctMap, state.view === 'overview' ? 25 : 500);
+  let feed = filtered;
+  if (state.view === 'transactions' && state.search.trim()) {
+    const q = state.search.trim().toLowerCase();
+    feed = filtered.filter((t) => (t.merchant || '').toLowerCase().includes(q)
+      || (t.notes || '').toLowerCase().includes(q)
+      || (t.amount / 100).toFixed(2).includes(q));
+  }
+  renderFeed(feed, acctMap, state.view === 'overview' ? 25 : 500);
 }
 
 // ── regions ───────────────────────────────────────────────────────────────
@@ -136,19 +146,12 @@ function renderCharts(s, buckets) {
     </div>`;
 }
 
-function renderFeed(txns, acctMap, limit) {
-  const head = `<div class="feed-head"><h2>${state.view === 'transactions' ? 'All transactions' : 'Recent activity'}</h2>
-    <span class="hint mono">${txns.length} txns</span></div>`;
-  if (!txns.length) {
-    $('#feedCard').innerHTML = `<div class="card">${head}${emptyState()}</div>`;
-    return;
-  }
-  const rows = txns.slice(0, limit).map((t) => {
-    const cat = categoryById(t.category);
-    const acct = acctMap.get(t.accountId);
-    const credit = t.direction === 'credit';
-    const flash = t.id === _flashId ? ' enter' : '';
-    return `<div class="row${flash}" data-id="${t.id}">
+function feedRow(t, acctMap) {
+  const cat = categoryById(t.category);
+  const acct = acctMap.get(t.accountId);
+  const credit = t.direction === 'credit';
+  const flash = t.id === _flashId ? ' enter' : '';
+  return `<div class="row${flash}${t.excluded ? ' excluded' : ''}" data-id="${t.id}">
       <div class="tile" style="background:${cat.color}22;color:${cat.color}">${cat.icon}</div>
       <div class="row-main">
         <div class="row-merchant">${esc(t.merchant || cat.label)}</div>
@@ -157,20 +160,165 @@ function renderFeed(txns, acctMap, limit) {
           ${acct ? `<span>${esc(acct.label)}</span>` : ''}
           <span>${esc((t.method || '').toUpperCase())}</span>
           <span>${relativeTime(t.ts)}</span>
+          ${t.channels && t.channels.length > 1 ? `<span class="pill" title="Matched across ${esc(t.channels.join(' + '))}">🔗 ${esc(t.channels.join('+'))}</span>` : ''}
+          ${t.possibleDuplicateOf ? '<span class="pill" style="color:var(--warn);background:var(--warn-soft)">possible dup</span>' : ''}
+          ${t.excluded ? '<span class="pill">excluded</span>' : ''}
         </div>
+        ${t.notes ? `<div class="row-note">📝 ${esc(t.notes)}</div>` : ''}
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="row-amt ${credit ? 'credit' : ''}">${credit ? '+' : '−'}${formatMoney(t.amount)}</span>
+        <span class="row-amt ${credit ? 'credit' : ''}${t.excluded ? ' struck' : ''}">${credit ? '+' : '−'}${formatMoney(t.amount)}</span>
         <span class="row-actions">
-          <button class="mini" data-action="recat" data-id="${t.id}" aria-label="Re-categorize" title="Re-categorize">🏷</button>
+          <button class="mini" data-action="edit" data-id="${t.id}" aria-label="Edit transaction" title="Edit">✎</button>
           <button class="mini" data-action="del" data-id="${t.id}" aria-label="Delete transaction" title="Delete">✕</button>
         </span>
       </div>
     </div>`;
-  }).join('');
-  $('#feedCard').innerHTML = `<div class="card">${head}<div class="feed">${rows}</div>
+}
+
+function renderFeed(txns, acctMap, limit) {
+  const isTxnView = state.view === 'transactions';
+  const search = isTxnView
+    ? `<input class="input" id="txnSearch" placeholder="Search merchant, amount or note…" value="${esc(state.search)}" autocomplete="off" style="margin-bottom:12px">`
+    : '';
+  const head = `<div class="feed-head"><h2>${isTxnView ? 'All transactions' : 'Recent activity'}</h2>
+    <span class="hint mono">${txns.length} txn${txns.length === 1 ? '' : 's'}</span></div>`;
+  if (!txns.length) {
+    const body = state.search ? '<p class="hint" style="text-align:center;padding:24px 0">No matches.</p>' : emptyState();
+    $('#feedCard').innerHTML = `<div class="card">${head}${search}${body}</div>`;
+    refocusSearch();
+    return;
+  }
+  const rows = txns.slice(0, limit).map((t) => feedRow(t, acctMap)).join('');
+  $('#feedCard').innerHTML = `<div class="card">${head}${search}<div class="feed">${rows}</div>
     ${txns.length > limit ? `<p class="hint" style="text-align:center;margin-top:12px">Showing ${limit} of ${txns.length}.</p>` : ''}</div>`;
   _flashId = null;
+  refocusSearch();
+}
+function refocusSearch() {
+  if (state.view !== 'transactions') return;
+  const s = $('#txnSearch');
+  if (s && state.search) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
+}
+
+function hideMainRegions() {
+  $('#filters').style.display = 'none';
+  $('#kpis').style.display = 'none';
+  $('#charts').style.display = 'none';
+}
+
+function fmtNext(s) {
+  const d = s.daysUntil;
+  const ds = new Date(s.nextDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  if (d < 0) return `due ${Math.abs(d)}d ago · ${ds}`;
+  if (d === 0) return `today · ${ds}`;
+  if (d === 1) return `tomorrow · ${ds}`;
+  return `in ${d} days · ${ds}`;
+}
+
+function seriesRow(s) {
+  const cat = categoryById(s.category);
+  const amt = s.amountKind === 'variable' ? `~${formatMoney(s.amountRange[0])}–${formatMoney(s.amountRange[1])}` : formatMoney(s.amountMinor);
+  return `<div class="row" data-action="filtertxn" data-cat="${s.category}">
+    <div class="tile" style="background:${cat.color}22;color:${cat.color}">${cat.icon}</div>
+    <div class="row-main">
+      <div class="row-merchant">${esc(s.displayName)}</div>
+      <div class="row-meta">
+        <span class="pill">${esc(s.kind)} · ${esc(s.cadenceLabel)}</span>
+        <span>${s.occurrences}× since ${new Date(s.firstTs).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })}</span>
+        <span title="confidence ${(s.confidence * 100).toFixed(0)}%">${s.confidence >= 0.6 ? '● tracked' : '○ possible'}</span>
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div class="row-amt">${amt}</div>
+      <div class="hint mono">${formatMoney(s.monthlyEquivMinor)}/mo</div>
+    </div>
+  </div>`;
+}
+
+function renderRecurring(txns) {
+  hideMainRegions();
+  const all = detectRecurring(txns, Date.now()).filter((s) => s.status === 'active');
+  if (!all.length) {
+    $('#feedCard').innerHTML = `<div class="card"><div class="feed-head"><h2>Recurring</h2></div>${emptyState('No recurring payments yet', 'Subscriptions, SIPs and rent appear here automatically once there are a few months of history. Keep capturing.')}</div>`;
+    return;
+  }
+  const confirmed = all.filter((s) => s.confidence >= 0.6);
+  const possible = all.filter((s) => s.confidence >= 0.4 && s.confidence < 0.6);
+  const monthly = confirmed.reduce((a, s) => a + s.monthlyEquivMinor, 0);
+  const upcoming = confirmed.filter((s) => s.daysUntil >= -2 && s.daysUntil <= 30).sort((a, b) => a.daysUntil - b.daysUntil);
+  const m = splitMoney(monthly);
+
+  const upcomingHtml = upcoming.length ? `<div class="card"><div class="feed-head"><h2>Upcoming · next 30 days</h2></div>
+    <div class="feed">${upcoming.map((s) => {
+      const cat = categoryById(s.category);
+      return `<div class="row"><div class="tile" style="background:${cat.color}22;color:${cat.color}">${cat.icon}</div>
+        <div class="row-main"><div class="row-merchant">${esc(s.displayName)}</div>
+        <div class="row-meta"><span class="${s.daysUntil <= 3 ? 'pill' : ''}" ${s.daysUntil <= 3 ? 'style="color:var(--warn);background:var(--warn-soft)"' : ''}>${fmtNext(s)}</span></div></div>
+        <span class="row-amt">${formatMoney(s.amountMinor)}</span></div>`;
+    }).join('')}</div></div>` : '';
+
+  $('#feedCard').innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div class="kpi-head"><span class="kpi-ico">🔁</span>Monthly recurring</div>
+      <div class="kpi-val">${m.sign}<span class="sym">${m.sym}</span>${m.whole}<span class="frac">${m.frac}</span></div>
+      <div class="hint mono" style="margin-top:6px">${confirmed.length} subscription${confirmed.length === 1 ? '' : 's'} · ${formatMoney(monthly * 12)}/yr committed</div>
+    </div>
+    ${upcomingHtml}
+    <div class="card" style="margin-top:16px"><div class="feed-head"><h2>All subscriptions</h2></div>
+      <div class="feed">${confirmed.map(seriesRow).join('')}</div>
+      ${possible.length ? `<p class="hint" style="margin:16px 0 8px">Might be recurring — confirm by leaving them, or they'll drop off:</p><div class="feed">${possible.map(seriesRow).join('')}</div>` : ''}
+    </div>`;
+}
+
+async function renderInsights(txns) {
+  hideMainRegions();
+  const ins = insights(txns, Date.now());
+  const budgets = await db.getAll('budgets');
+  const bMap = new Map(budgets.map((b) => [b.categoryId, b.monthly]));
+  const monthTx = txns.filter((t) => t.ts >= rangeStart('month'));
+  const spendByCat = new Map(summarize(monthTx).categories.map((c) => [c.categoryId, c.amount]));
+
+  const kpi = (icon, label, value, sub) => `<div class="card kpi" style="min-height:104px">
+    <div class="kpi-head"><span class="kpi-ico">${icon}</span>${label}</div>
+    <div class="kpi-val" style="font-size:1.6rem">${value}</div>
+    ${sub ? `<div class="kpi-foot">${sub}</div>` : ''}</div>`;
+  const momPill = ins.momPct == null ? '<span class="hint">no prior month</span>'
+    : `<span class="delta ${ins.momPct > 0 ? 'up' : ins.momPct < 0 ? 'down' : 'flat'}">${ins.momPct > 0 ? '▲' : ins.momPct < 0 ? '▼' : ''} ${Math.abs(ins.momPct)}% vs last mo</span>`;
+
+  const expenseCats = CATEGORIES.filter((c) => c.kind === 'expense' && c.id !== 'uncategorized');
+  const budgetRows = expenseCats.map((c) => {
+    const spent = spendByCat.get(c.id) || 0;
+    const budget = bMap.get(c.id) || 0;
+    if (!spent && !budget) return '';
+    const pct = budget ? Math.min(100, Math.round((spent / budget) * 100)) : 0;
+    const over = budget && spent > budget;
+    return `<div class="budget-row">
+      <div class="budget-head"><span class="pill"><span class="dot" style="background:${c.color}"></span>${c.icon} ${esc(c.label)}</span>
+        <span class="mono">${formatMoney(spent)}${budget ? ` / ${formatMoney(budget)}` : ''} ${over ? '<span style="color:var(--negative)">over</span>' : ''}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${budget ? pct : 0}%;background:${over ? 'var(--negative)' : c.color}"></div></div>
+      <input class="input bsm" data-action="setbudget" data-cat="${c.id}" type="number" min="0" step="100" inputmode="numeric" placeholder="Set monthly budget ₹" value="${budget ? budget / 100 : ''}">
+    </div>`;
+  }).join('');
+
+  const maxMerchant = Math.max(1, ...ins.topMerchants.map((m) => m.amount));
+  const merchantRows = ins.topMerchants.map((mm) => `<div class="mrow">
+    <span class="mname">${esc(mm.merchant)}</span>
+    <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${Math.round((mm.amount / maxMerchant) * 100)}%;background:var(--accent)"></div></div>
+    <span class="mono">${formatMoney(mm.amount)}</span></div>`).join('') || '<p class="hint">No spending yet this month.</p>';
+
+  $('#feedCard').innerHTML = `
+    <div class="kpis" style="margin-bottom:16px">
+      ${kpi('💸', 'Spent this month', formatMoney(ins.thisSpent), momPill)}
+      ${kpi('📈', 'Projected month-end', formatMoney(ins.projected), `<span class="hint mono">at ${formatMoney(ins.dailyAvg)}/day</span>`)}
+      ${kpi('💰', 'Income', formatMoney(ins.income), ins.savingsRate == null ? '' : `<span class="hint mono">${ins.savingsRate}% saved</span>`)}
+      ${kpi('🧾', 'Biggest spend', ins.biggest ? formatMoney(ins.biggest.amount) : '—', ins.biggest ? `<span class="hint">${esc(ins.biggest.merchant || categoryById(ins.biggest.category).label)}</span>` : '')}
+    </div>
+    <div class="card" style="margin-bottom:16px"><div class="feed-head"><h2>Budgets · this month</h2></div>
+      ${budgetRows || '<p class="hint">Set a monthly budget on any category to track it here.</p>'}
+      ${budgetRows ? '' : expenseCats.slice(0, 6).map((c) => `<div class="budget-row"><div class="budget-head"><span class="pill"><span class="dot" style="background:${c.color}"></span>${c.icon} ${esc(c.label)}</span></div><input class="input bsm" data-action="setbudget" data-cat="${c.id}" type="number" min="0" step="100" placeholder="Set monthly budget ₹"></div>`).join('')}
+    </div>
+    <div class="card"><div class="feed-head"><h2>Top merchants · this month</h2></div>${merchantRows}</div>`;
 }
 
 async function renderUnparsed() {
@@ -200,7 +348,7 @@ function updateContext(nAccounts, s) {
   const now = new Date();
   const period = state.range === 'month' ? now.toLocaleString('en-IN', { month: 'long', year: 'numeric' })
     : state.range === 'all' ? 'All time' : `Last ${state.range}`;
-  $('#viewTitle').textContent = state.view === 'unparsed' ? 'Needs review' : state.view === 'transactions' ? 'Transactions' : 'Overview';
+  $('#viewTitle').textContent = { overview: 'Overview', transactions: 'Transactions', recurring: 'Recurring', insights: 'Insights', unparsed: 'Needs review' }[state.view] || 'Overview';
   $('#contextLine').textContent = `${period} · ${nAccounts} account${nAccounts === 1 ? '' : 's'} · ${formatMoney(s.spent)} spent`;
 }
 
@@ -215,6 +363,17 @@ function syncNav() {
 function onChange(e) {
   if (e.target.id === 'catFilter') { state.category = e.target.value || null; render(); }
   if (e.target.id === 'acctFilter') { state.accountId = e.target.value || null; render(); }
+  if (e.target.dataset && e.target.dataset.action === 'setbudget') {
+    const cat = e.target.dataset.cat;
+    const rupees = parseFloat(e.target.value);
+    const done = () => render();
+    if (e.target.value === '' || isNaN(rupees) || rupees <= 0) db.del('budgets', cat).then(done);
+    else db.put('budgets', { categoryId: cat, monthly: Math.round(rupees * 100) }).then(done);
+  }
+}
+
+function onInput(e) {
+  if (e.target.id === 'txnSearch') { state.search = e.target.value; render(); }
 }
 
 // Arrow-key navigation for the date-range radiogroup (single tab stop).
@@ -232,7 +391,7 @@ function onKeydown(e) {
 async function onClick(e) {
   const t = e.target.closest('[data-view],[data-range],[data-action]');
   if (!t) return;
-  if (t.dataset.view) { state.view = t.dataset.view; render(); return; }
+  if (t.dataset.view) { state.view = t.dataset.view; if (state.view !== 'transactions') state.search = ''; closeModal(); render(); return; }
   if (t.dataset.range) { state.range = t.dataset.range; render(); return; }
   const id = t.dataset.id;
   switch (t.dataset.action) {
@@ -240,7 +399,8 @@ async function onClick(e) {
     case 'add': openAddModal(); break;
     case 'paste': openPasteModal(); break;
     case 'menu': openMenuModal(); break;
-    case 'recat': openRecatModal(id); break;
+    case 'edit': openEditModal(id); break;
+    case 'filtertxn': state.view = 'transactions'; state.category = t.dataset.cat; state.search = ''; render(); break;
     case 'addfrom': { const m = await db.get('raw_messages', id); openAddModal(m?.body); break; }
     case 'del': await ingest.deleteTxn(id); toast('Deleted'); render(); break;
     case 'delraw': await db.del('raw_messages', id); render(); break;
@@ -324,18 +484,46 @@ function openPasteModal() {
   });
 }
 
-function openRecatModal(id) {
-  openModal(`<div class="modal-head"><h3>Re-categorize</h3><button class="btn ghost icon" data-action="close" aria-label="Close">✕</button></div>
-    <div class="modal-body"><div style="display:flex;flex-wrap:wrap;gap:8px">
-      ${CATEGORIES.filter((c) => c.id !== 'uncategorized').map((c) => `<button class="btn" data-action="setcat" data-id="${id}" data-cat="${c.id}">${c.icon} ${esc(c.label)}</button>`).join('')}
-    </div></div>`);
-  $('#modal').querySelectorAll('[data-action="setcat"]').forEach((b) =>
-    b.addEventListener('click', async () => { await ingest.recategorize(b.dataset.id, b.dataset.cat); closeModal(); toast('Re-categorized'); render(); }));
+async function openEditModal(id) {
+  const t = await db.get('transactions', id);
+  if (!t) return;
+  openModal(`<form id="editForm">
+    <div class="modal-head"><h3>Edit transaction</h3><button class="btn ghost icon" type="button" data-action="close" aria-label="Close">✕</button></div>
+    <div class="modal-body">
+      <div class="lab">Category
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
+          ${CATEGORIES.filter((c) => c.id !== 'uncategorized').map((c) => `<button type="button" class="btn sm cat-pick${c.id === t.category ? ' primary' : ''}" data-cat="${c.id}">${c.icon} ${esc(c.label)}</button>`).join('')}
+        </div>
+        <span class="hint" style="margin-top:6px">Re-categorizing also tags other transactions from this merchant.</span>
+      </div>
+      <label class="lab">Note<input class="input" name="notes" value="${esc(t.notes || '')}" placeholder="e.g. work reimbursable"></label>
+      <label class="lab" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="excluded" ${t.excluded ? 'checked' : ''}> Exclude from spending totals</label>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" type="button" data-action="close">Cancel</button>
+      <button class="btn primary" type="submit">Save</button></div>
+  </form>`);
+  let chosenCat = t.category;
+  $('#modal').querySelectorAll('.cat-pick').forEach((b) => b.addEventListener('click', () => {
+    chosenCat = b.dataset.cat;
+    $('#modal').querySelectorAll('.cat-pick').forEach((x) => x.classList.toggle('primary', x === b));
+  }));
+  $('#editForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    let applied = 0;
+    if (chosenCat !== t.category) { const r = await ingest.recategorize(id, chosenCat); applied = r.applied || 0; }
+    await ingest.updateTxn(id, { notes: (f.get('notes') || '').trim(), excluded: f.get('excluded') === 'on' });
+    closeModal();
+    toast(applied ? `Saved · +${applied} more re-categorized` : 'Saved');
+    render();
+  });
 }
 
 function openMenuModal() {
   openModal(`<div class="modal-head"><h3>More</h3><button class="btn ghost icon" data-action="close" aria-label="Close">✕</button></div>
     <div class="modal-body" style="gap:8px">
+      <button class="btn" data-view="insights">📊 Insights & budgets</button>
+      <button class="btn" data-view="unparsed">⚠ Needs review</button>
       <button class="btn" data-action="paste">Paste a bank alert</button>
       <button class="btn" data-action="import">Import file (.json / .csv)</button>
       <button class="btn" data-action="sample">Load demo data</button>
@@ -351,9 +539,9 @@ async function loadSample() {
   const res = await fetch('data/sample-notifications.json').catch(() => null);
   if (!res || !res.ok) return toast('Could not load demo data');
   const msgs = await res.json();
-  let n = 0;
-  for (const m of msgs) { if ((await ingest.ingestRaw(m)) === 'parsed') n++; }
-  toast(`Loaded ${n} sample transactions`);
+  let n = 0, merged = 0;
+  for (const m of msgs) { const r = await ingest.ingestRaw(m); if (r === 'parsed') n++; else if (r === 'merged') merged++; }
+  toast(`Loaded ${n} transactions${merged ? ` · merged ${merged} SMS+email` : ''}`);
   render();
 }
 
