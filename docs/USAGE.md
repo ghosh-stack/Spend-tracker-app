@@ -37,12 +37,43 @@ When the Node bridge (`node tools/serve.js`) is running and reachable, the top
 bar shows a green **Live** pill and the app pulls forwarded messages every few
 seconds. Otherwise it shows **Offline** and works fully in manual/import mode.
 
-## Fixing categories
+## Editing a transaction
 
-- Hover any feed row → 🏷 to **re-categorize**. Manual choices stick and are
-  never overwritten by rules.
-- Messages that don't match a bank format land in **Needs review** — add them by
-  hand, or teach the parser a new format (below).
+Hover any feed row → ✎ to open **Edit**:
+- **Re-categorize** — and it *learns*: the merchant's other transactions
+  (past & future) get the same category automatically. Manual choices are never
+  overwritten by rules.
+- **Note** — add free text (searchable).
+- **Exclude from spending totals** — for reimbursable/non-personal spends; the
+  transaction stays visible but drops out of every total and chart.
+
+Messages that don't match a bank format land in **Needs review** — add them by
+hand, or teach the parser a new format (below).
+
+## Recurring, Insights & budgets
+
+- **Recurring** (nav) auto-detects subscriptions, SIPs, rent and EMIs once there
+  are a few months of history. It shows your **monthly commitment total**, an
+  **upcoming-30-days** list, and each series with its cadence and next charge.
+- **Insights** (nav / More) shows this month vs last, **projected month-end**
+  spend, savings rate, biggest spend, and top merchants.
+- **Budgets** live in Insights: type a monthly amount on any category to track a
+  progress bar (turns red when over). With alerts on, you're notified at 80% and 100%.
+
+## Search & cross-channel
+
+- In **Transactions**, the search box filters by merchant, amount or note.
+- A spend that arrives as **both an SMS and an email** is merged into one row,
+  tagged 🔗 `email+sms`. A same-amount pair we're unsure about is flagged
+  *possible dup* rather than merged — you decide.
+
+## App lock & alerts (More → Privacy & alerts)
+
+- **App lock** — set a PIN (biometric too, in the Android app). The app locks on
+  every return to background and never shows data before you unlock. It's an
+  access gate, not encryption; recovery is via your Export backup.
+- **Alerts** — turn on local notifications for large transactions (set the
+  threshold) and budget limits.
 
 ## Adding a bank or merchant rule
 

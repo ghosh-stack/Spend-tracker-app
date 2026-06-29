@@ -109,3 +109,32 @@ require your own code-signing certs and are out of scope for this source drop.
   masked account/card tail to reject marketing texts).
 - No secrets in the repo or the PWA. Adapter credentials live only in a gitignored
   `.env` / environment, never in IndexedDB, never transmitted off-device.
+
+## v2 additions
+
+- **DB v3** — added object stores `budgets` and `settings`, and `by_amount` /
+  `by_channels` indexes on `transactions`. The `onupgradeneeded` handler is
+  idempotent: it creates missing stores *and* adds missing indexes to existing
+  stores, so a phone on v1 upgrades cleanly without data loss.
+- **Cross-channel dedupe & merge** (`ingest.js`) — a freshly parsed transaction is
+  matched against same-amount candidates: Tier 1 = identical bank reference (any
+  time gap); Tier 2 = amount+account-tail+direction within ±3h on a *different*
+  channel with agreeing merchant. A match merges (keeping `sources[]`/`channels[]`,
+  letting the richer source fill gaps, recomputing the dedupe key); a same-amount
+  conflicting pair is stored but flagged `possibleDuplicateOf`. The unique
+  `by_dedupeKey` index remains the exact-duplicate backstop. Ingestion is serial,
+  so this is a read-decide-write (no fragile multi-store transaction).
+- **Recurring & insights** (`queries.js`) — `detectRecurring()` and `insights()`
+  are pure, derived on demand (no stored table to invalidate). Recurring groups by
+  a canonicalized merchant + account, gates on cadence band + low gap dispersion +
+  amount stability + category prior, and scores a confidence.
+- **App lock** (`lock.js`) — PBKDF2-SHA256 PIN gate (WebCrypto), constant-time
+  compare, escalating lockout; gates render before any data paints and re-locks on
+  background. Biometric is feature-detected (Capacitor only).
+- **Notifications** (`notify.js`) — one facade over the web Notifications API and
+  Capacitor LocalNotifications; large-transaction and budget triggers, no push server.
+- **Native Android** ([android-native/](../android-native/)) — Capacitor wrapper
+  with an SMS `BroadcastReceiver` and a `NotificationListenerService` (email +
+  bank-app push) that forward into the WebView via the `spendlens-sms` event.
+  Captured text is injected as a JSON *string literal* (`JSONObject.quote`), never
+  as code. Built by CI; sideload-only by Play policy.

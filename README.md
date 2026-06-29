@@ -27,14 +27,16 @@ A few requirements collide with platform reality; here's exactly how each is han
 
 | Requirement | Reality | What SpendLens does |
 |---|---|---|
-| Auto-track **SMS** | No web API can read SMS; `RECEIVE_SMS` is Play-Store-restricted; desktops have no SMS | Ships an **Android SMS-forwarder** spec + the parser it feeds. Manual paste is the universal baseline. |
-| Auto-track **email** | Needs IMAP creds (app password / OAuth) | Ships a **Node IMAP poller** that reads creds from env and forwards to the app. |
-| "Runs on desktop **and** Android" | True from one codebase via the web platform | **Installable PWA** (Chrome/Edge "Install"; Android "Add to Home screen"). Tauri/Capacitor wrappers are optional. |
-| Real bank streams | The provided inputs were placeholders (no live creds) | Runs now on a **36-message sample corpus**; live creds plug into the documented adapters. |
+| Auto-track **SMS** | No web API can read SMS; `RECEIVE_SMS` is Play-Store-restricted | The **native Android app** ([android-native/](android-native/)) reads incoming bank SMS on-device via a `BroadcastReceiver`. Sideloaded (Play won't allow the permission). |
+| Auto-track **email** | A browser can't read your inbox | The native app's **notification listener** captures bank **email + bank-app push** on-device (Gmail/Outlook/PhonePe/…). Optional Node **IMAP poller** for full email bodies. |
+| Same spend on **SMS *and* email** | Double-counting | **Cross-channel dedupe/merge** — collapses them into one transaction, keeping both source channels. |
+| Android-first | — | **Installable PWA** today (Add to Home screen) + the **Capacitor APK** for hands-off auto-capture (built by CI). |
+| Real bank streams | The provided inputs were placeholders (no live creds) | Runs now on a **44-message sample corpus**; real alerts flow in via the native app. |
 
-Nothing is faked: the parser, categorizer, dedupe, storage, and dashboard are
-real and tested. The parts that need *your* device permissions or *your*
-credentials are clearly marked and wired to plug in.
+Nothing is faked: the parser, categorizer, cross-channel dedupe, recurring
+detection, storage, and dashboard are real and verified. The native APK is
+complete source + a CI build (the sandbox can't compile/sign). The parts that
+need *your* device permissions are clearly marked and wired to plug in.
 
 ## Quick start (60 seconds, no install)
 
@@ -60,13 +62,22 @@ Then **install it**: in Chrome/Edge click the address-bar *Install* icon
   BoB, Yes, IDFC, Paytm, GPay, PhonePe, SBI Card) + a gated generic fallback for
   unknown banks. Handles ₹/Rs./INR, lakh comma grouping, the date-format zoo, and
   debit-vs-credit disambiguation. Rules are data — [add a bank](app/js/rules.js) by adding a row.
-- **Auto-categorization** — 14 categories, ~70 India-tuned merchant rules
-  (Swiggy→Food, Blinkit→Groceries, Uber→Transport, Zerodha→Investments…).
-- **Live dashboard** — KPI cards, an SVG category donut, a spend-over-time chart,
-  and a real-time transaction feed. Dark/light, fully responsive, WCAG-AA, keyboard-accessible.
-- **Ingestion** — paste · CSV/JSON import · email IMAP poller · Android SMS forwarder.
-- **Privacy** — local-only, no telemetry, one-click **export** (JSON+CSV) and
-  **erase** (GDPR Art. 17 & 20). No hardcoded secrets.
+- **Cross-channel dedupe & merge** — the same spend arriving via SMS *and* email
+  collapses into one transaction (exact reference, or amount+account+window), and
+  the richer source fills the gaps.
+- **Auto-learn categorization** — 14 categories, ~70 India-tuned merchant rules;
+  recategorizing a merchant once sticks for all its past & future transactions.
+- **Recurring detection** — auto-spots subscriptions / SIPs / rent / EMIs, predicts
+  the next charge, and totals your monthly commitment.
+- **Insights & budgets** — month-over-month, projected month-end, savings rate,
+  top merchants, and per-category monthly budgets with progress bars.
+- **Live dashboard** — KPI cards, SVG category donut, spend-over-time chart, live
+  feed with search + per-txn notes and exclude-from-spend. Dark/light, responsive, WCAG-AA.
+- **Native Android** — Capacitor app that auto-captures SMS + email/push on-device.
+- **App lock + alerts** — PIN/biometric lock; local notifications for large spends
+  and budget limits.
+- **Privacy** — 100% local, no telemetry, one-click **export** (JSON+CSV) and
+  **erase** (GDPR Art. 17 & 20). No hardcoded secrets; the PIN is never stored, only its hash.
 
 ## Project layout
 
@@ -75,17 +86,18 @@ app/                     The PWA — open this in a browser. Zero dependencies.
   index.html  manifest.webmanifest  sw.js
   css/styles.css         "Ledger" design system (dark + light)
   js/
-    money.js   parser.js   rules.js      ← pure engine (tested)
-    db.js      ingest.js   queries.js
-    charts.js  ui.js       app.js        ← view + glue
+    money.js   parser.js   rules.js          ← pure engine (tested)
+    db.js      ingest.js   queries.js         ← storage · dedupe/merge · insights/recurring
+    charts.js  ui.js       app.js             ← view + glue
+    lock.js    notify.js   native-capture.js  ← app lock · alerts · Capacitor glue
   data/sample-notifications.json
-tools/serve.js           Local static server + /ingest bridge (Node stdlib, 0 deps)
-adapters/
-  email-imap/            Optional IMAP poller (Node)
-  android-sms/           Optional SMS forwarder (spec + contract)
+android-native/          Capacitor Android app — on-device SMS + email/push capture
+tools/serve.js / serve.py  Local dev server (Node / Python); serve.js also bridges adapters
+adapters/                Optional email-IMAP poller + android-sms (no-code) forwarder
 tests/parser.test.js     Runnable check:  node --test tests/
 docs/                    ARCHITECTURE · SETUP · USAGE · STYLE_GUIDE · PRIVACY
 .env.example             Adapter credential template (never commit .env)
+.github/workflows/android-apk.yml   CI that builds the sideloadable APK
 ```
 
 ## Documentation
@@ -95,6 +107,7 @@ docs/                    ARCHITECTURE · SETUP · USAGE · STYLE_GUIDE · PRIVAC
 - [**USAGE.md**](docs/USAGE.md) — day-to-day use, ingestion options, adding bank rules.
 - [**STYLE_GUIDE.md**](docs/STYLE_GUIDE.md) — the visual system (tokens, type, components).
 - [**PRIVACY.md**](docs/PRIVACY.md) — the GDPR posture and exactly what data lives where.
+- [**android-native/README.md**](android-native/README.md) — build & sideload the auto-capture Android app.
 
 ## Design philosophy
 

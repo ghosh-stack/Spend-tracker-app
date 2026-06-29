@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { toMinor, parseAmount } from '../app/js/money.js';
 import { parseMessage, parseDate, inferDirection, categorize } from '../app/js/parser.js';
 import { PARSE_RULES, CATEGORIZE_RULES } from '../app/js/rules.js';
+import { detectRecurring, insights } from '../app/js/queries.js';
 
 const rules = {
   parseRules: [...PARSE_RULES].sort((a, b) => a.priority - b.priority),
@@ -152,4 +153,36 @@ test('categorize: word boundaries stop short-key substring collisions', () => {
 test('inferDirection: a strong debit verb beats an incidental "refund"/"cashback"', () => {
   assert.equal(inferDirection('Refund processed: Rs.500 debited from A/c x1234 to vendor'), 'debit');
   assert.equal(inferDirection('Rs.200 cashback offer; Rs.1000 spent on card xx1234'), 'debit');
+});
+
+test('detectRecurring: spots a monthly subscription, ignores random repeats', () => {
+  const M = 30 * 86400000, base = Date.UTC(2026, 3, 15);
+  const mk = (merchant, amount, ts, category = 'entertainment') =>
+    ({ merchant, rawMerchant: merchant, amount, ts, category, direction: 'debit', accountId: 'kotak:3344' });
+  const txns = [
+    mk('netflix@hdfcbank', 64900, base),
+    mk('netflix@hdfcbank', 64900, base + M),
+    mk('netflix@hdfcbank', 64900, base + 2 * M),
+    mk('swiggy', 45000, base + 5 * 86400000, 'food'),   // random, only 2 → never recurring
+    mk('swiggy', 61000, base + 19 * 86400000, 'food'),
+  ];
+  const series = detectRecurring(txns, base + 2 * M + 86400000);
+  const netflix = series.find((s) => /netflix/i.test(s.displayName));
+  assert.ok(netflix, 'monthly Netflix detected');
+  assert.equal(netflix.cadence, 'monthly');
+  assert.equal(netflix.kind, 'Subscription');
+  assert.ok(!series.some((s) => /swiggy/i.test(s.displayName)), 'random repeats not flagged');
+});
+
+test('insights: month-over-month spend', () => {
+  const t = (amount, ts) => ({ amount, ts, direction: 'debit', category: 'food', merchant: 'X' });
+  const txns = [
+    t(10000, Date.UTC(2026, 4, 10)), // May
+    t(20000, Date.UTC(2026, 5, 5)),  // June
+    t(10000, Date.UTC(2026, 5, 10)), // June
+  ];
+  const ins = insights(txns, Date.UTC(2026, 5, 15));
+  assert.equal(ins.thisSpent, 30000);
+  assert.equal(ins.lastSpent, 10000);
+  assert.equal(ins.momPct, 200);
 });
