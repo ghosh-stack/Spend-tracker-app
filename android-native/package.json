@@ -1,0 +1,22 @@
+{
+  "name": "spendlens-android",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capacitor Android wrapper for SpendLens — wraps the PWA in ../app and adds on-device SMS + notification (email/bank-push) capture.",
+  "license": "MIT",
+  "scripts": {
+    "init:android": "cap add android",
+    "sync": "cap sync android && node scripts/apply-native.mjs",
+    "open": "cap open android",
+    "apk": "npm run sync && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.0",
+    "@capacitor/core": "^6.1.0",
+    "@capacitor/local-notifications": "^6.1.0",
+    "@capacitor/preferences": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.0"
+  }
+}

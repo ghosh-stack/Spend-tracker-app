@@ -34,12 +34,23 @@ async function main() {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 
-  // Native-wrapper hook (Capacitor Android SMS adapter): a forwarder can call
-  // window.SpendLens.ingest({...}) or dispatch a 'spendlens-sms' window event.
+  // Native-wrapper hook (Capacitor): the SMS receiver / notification listener
+  // dispatch a 'spendlens-sms' window event; a forwarder can also call
+  // window.SpendLens.ingest({...}) directly. The event detail carries its own
+  // source ('android-sms' | 'android-notification'); default to SMS if absent.
   window.SpendLens = { ingest: (m) => ingest.ingestRaw(m), render };
   window.addEventListener('spendlens-sms', (e) => {
-    try { ingest.ingestRaw({ source: 'android-sms', ...JSON.parse(e.detail || '{}') }); } catch {}
+    try {
+      const msg = JSON.parse(e.detail || '{}');
+      ingest.ingestRaw({ source: 'android-sms', ...msg });
+    } catch {}
   });
+
+  // Inside the Capacitor wrapper, load the native capture glue (onboarding,
+  // queue drain). Guarded so the plain browser PWA never references Capacitor.
+  if (window.Capacitor?.isNativePlatform?.()) {
+    import('./native-capture.js').catch(() => {});
+  }
 }
 
 main();
