@@ -4,13 +4,12 @@
 import * as db from './db.js';
 import * as ingest from './ingest.js';
 import { applyFilter, summarize, series, relativeTime, rangeStart } from './queries.js';
-import { donut, bars, sparkline } from './charts.js';
+import { donut, bars, sparkline, esc } from './charts.js';
 import { formatMoney, splitMoney, toMinor } from './money.js';
 import { CATEGORIES, categoryById } from './rules.js';
 
 const $ = (sel) => document.querySelector(sel);
 const RANGES = [['week', 'Week'], ['month', 'Month'], ['quarter', 'Quarter'], ['year', 'Year'], ['all', 'All']];
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 const state = { view: 'overview', range: 'month', category: null, accountId: null };
 let _flashId = null; // id of a just-arrived txn, gets the slide-in animation
@@ -25,6 +24,7 @@ const sumIncome = (txns, from, to) => txns.reduce((s, t) =>
 export function initUI() {
   document.addEventListener('click', onClick);
   document.addEventListener('change', onChange);
+  document.addEventListener('keydown', onKeydown);
   window.addEventListener('scroll', () => $('.topbar').classList.toggle('scrolled', window.scrollY > 4), { passive: true });
 
   ingest.onChange((evt) => {
@@ -67,14 +67,14 @@ export async function render() {
 
 // ── regions ───────────────────────────────────────────────────────────────
 function renderFilters(accounts) {
-  const seg = RANGES.map(([v, l]) => `<button data-range="${v}" aria-pressed="${state.range === v}">${l}</button>`).join('');
+  const seg = RANGES.map(([v, l]) => `<button role="radio" data-range="${v}" aria-checked="${state.range === v}" tabindex="${state.range === v ? 0 : -1}">${l}</button>`).join('');
   const cats = ['<option value="">All categories</option>']
     .concat(CATEGORIES.filter((c) => c.id !== 'uncategorized').map((c) => `<option value="${c.id}" ${state.category === c.id ? 'selected' : ''}>${c.icon} ${esc(c.label)}</option>`)).join('');
   const accs = ['<option value="">All accounts</option>']
     .concat(accounts.map((a) => `<option value="${a.id}" ${state.accountId === a.id ? 'selected' : ''}>${esc(a.label)}</option>`)).join('');
   const active = state.category || state.accountId;
   $('#filters').innerHTML = `
-    <div class="segment" role="group" aria-label="Date range">${seg}</div>
+    <div class="segment" role="radiogroup" aria-label="Date range">${seg}</div>
     <span class="field"><select class="input" id="catFilter" aria-label="Category">${cats}</select></span>
     <span class="field"><select class="input" id="acctFilter" aria-label="Account">${accs}</select></span>
     <span class="spacer"></span>
@@ -162,8 +162,8 @@ function renderFeed(txns, acctMap, limit) {
       <div style="display:flex;align-items:center;gap:8px">
         <span class="row-amt ${credit ? 'credit' : ''}">${credit ? '+' : '−'}${formatMoney(t.amount)}</span>
         <span class="row-actions">
-          <button class="mini" data-action="recat" data-id="${t.id}" title="Re-categorize">🏷</button>
-          <button class="mini" data-action="del" data-id="${t.id}" title="Delete">✕</button>
+          <button class="mini" data-action="recat" data-id="${t.id}" aria-label="Re-categorize" title="Re-categorize">🏷</button>
+          <button class="mini" data-action="del" data-id="${t.id}" aria-label="Delete transaction" title="Delete">✕</button>
         </span>
       </div>
     </div>`;
@@ -183,7 +183,7 @@ async function renderUnparsed() {
         <div class="row-main"><div class="row-merchant" style="font-family:var(--font-mono);font-size:13px;white-space:normal">${esc(m.body)}</div>
         <div class="row-meta"><span class="pill">${esc(m.source)}</span>${esc(m.sender || '')}<span>${relativeTime(m.receivedAt)}</span></div></div>
         <span class="row-actions" style="opacity:1"><button class="mini" data-action="addfrom" data-id="${m.id}">Add manually</button>
-        <button class="mini" data-action="delraw" data-id="${m.id}">✕</button></span></div>`).join('')
+        <button class="mini" data-action="delraw" data-id="${m.id}" aria-label="Delete message">✕</button></span></div>`).join('')
     : `${emptyState('All clear', 'No messages failed to parse. Anything we can\'t read shows up here so you can add it by hand or write a rule.')}`;
   $('#feedCard').innerHTML = `<div class="card"><div class="feed-head"><h2>Needs review</h2><span class="hint mono">${msgs.length}</span></div>
     ${msgs.length ? `<p class="hint" style="margin-bottom:12px">These didn't match any bank format. Add them manually, or extend <code>app/js/rules.js</code>.</p>` : ''}
@@ -217,6 +217,18 @@ function onChange(e) {
   if (e.target.id === 'acctFilter') { state.accountId = e.target.value || null; render(); }
 }
 
+// Arrow-key navigation for the date-range radiogroup (single tab stop).
+function onKeydown(e) {
+  const btn = e.target.closest && e.target.closest('.segment [role="radio"]');
+  if (!btn) return;
+  const delta = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+  if (!delta) return;
+  e.preventDefault();
+  const idx = RANGES.findIndex(([v]) => v === state.range);
+  state.range = RANGES[(idx + delta + RANGES.length) % RANGES.length][0];
+  render().then(() => $('.segment [role="radio"][aria-checked="true"]')?.focus());
+}
+
 async function onClick(e) {
   const t = e.target.closest('[data-view],[data-range],[data-action]');
   if (!t) return;
@@ -241,7 +253,18 @@ async function onClick(e) {
 }
 
 // ── modals ────────────────────────────────────────────────────────────────
-function openModal(html) { const m = $('#modal'); m.innerHTML = html; m.showModal(); }
+function openModal(html) {
+  const m = $('#modal');
+  m.innerHTML = html;
+  // Name the dialog from its heading (so AT announces it), then move focus to the
+  // first actionable control rather than the close button.
+  const h = m.querySelector('.modal-head h3, .modal-head h2');
+  if (h) { h.id = h.id || 'modalTitle'; m.setAttribute('aria-labelledby', h.id); }
+  m.showModal();
+  const focusTarget = m.querySelector('[autofocus]') ||
+    m.querySelector('.modal-body button, .modal-body input, .modal-body select, .modal-body textarea');
+  focusTarget?.focus();
+}
 function closeModal() { $('#modal').close(); }
 
 function catOptions(selected = 'uncategorized') {
@@ -251,7 +274,7 @@ function catOptions(selected = 'uncategorized') {
 function openAddModal(prefillNote = '') {
   const nowLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   openModal(`<form method="dialog" id="addForm">
-    <div class="modal-head"><h3>Add expense</h3><button class="btn ghost icon" type="button" data-action="close">✕</button></div>
+    <div class="modal-head"><h3>Add expense</h3><button class="btn ghost icon" type="button" data-action="close" aria-label="Close">✕</button></div>
     <div class="modal-body">
       <div class="grid2">
         <label class="lab">Amount (₹)<input class="input mono" name="amount" type="number" min="0" step="0.01" required autofocus></label>
@@ -282,7 +305,7 @@ function openAddModal(prefillNote = '') {
 
 function openPasteModal() {
   openModal(`<form id="pasteForm">
-    <div class="modal-head"><h3>Paste a bank alert</h3><button class="btn ghost icon" type="button" data-action="close">✕</button></div>
+    <div class="modal-head"><h3>Paste a bank alert</h3><button class="btn ghost icon" type="button" data-action="close" aria-label="Close">✕</button></div>
     <div class="modal-body">
       <p class="hint">Paste the exact SMS or email text. SpendLens parses it locally — nothing is sent anywhere.</p>
       <label class="lab">Source<select class="input" name="source"><option value="sms">SMS</option><option value="email">Email</option><option value="manual">Other</option></select></label>
@@ -302,7 +325,7 @@ function openPasteModal() {
 }
 
 function openRecatModal(id) {
-  openModal(`<div class="modal-head"><h3>Re-categorize</h3><button class="btn ghost icon" data-action="close">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Re-categorize</h3><button class="btn ghost icon" data-action="close" aria-label="Close">✕</button></div>
     <div class="modal-body"><div style="display:flex;flex-wrap:wrap;gap:8px">
       ${CATEGORIES.filter((c) => c.id !== 'uncategorized').map((c) => `<button class="btn" data-action="setcat" data-id="${id}" data-cat="${c.id}">${c.icon} ${esc(c.label)}</button>`).join('')}
     </div></div>`);
@@ -311,7 +334,7 @@ function openRecatModal(id) {
 }
 
 function openMenuModal() {
-  openModal(`<div class="modal-head"><h3>More</h3><button class="btn ghost icon" data-action="close">✕</button></div>
+  openModal(`<div class="modal-head"><h3>More</h3><button class="btn ghost icon" data-action="close" aria-label="Close">✕</button></div>
     <div class="modal-body" style="gap:8px">
       <button class="btn" data-action="paste">Paste a bank alert</button>
       <button class="btn" data-action="import">Import file (.json / .csv)</button>
@@ -347,7 +370,11 @@ async function exportData() {
   download(`spendlens-transactions-${Date.now()}.csv`, csv, 'text/csv');
   toast('Exported JSON + CSV');
 }
-const q = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+const q = (s) => {
+  let v = String(s ?? '');
+  if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; // neutralize spreadsheet formula injection
+  return `"${v.replace(/"/g, '""')}"`;
+};
 
 function download(name, content, type) {
   const url = URL.createObjectURL(new Blob([content], { type }));
@@ -377,7 +404,7 @@ async function importFile(file) {
 
 async function eraseAll() {
   closeModal();
-  openModal(`<div class="modal-head"><h3>Erase all data?</h3><button class="btn ghost icon" data-action="close">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Erase all data?</h3><button class="btn ghost icon" data-action="close" aria-label="Close">✕</button></div>
     <div class="modal-body"><p>This permanently deletes every transaction, account, rule and raw message from this device. There is no cloud copy. This cannot be undone.</p></div>
     <div class="modal-foot"><button class="btn ghost" data-action="close">Cancel</button>
       <button class="btn primary" id="confirmErase" style="background:var(--negative)">Erase everything</button></div>`);

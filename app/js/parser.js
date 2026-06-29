@@ -5,7 +5,8 @@
 import { toMinor } from './money.js';
 
 const DEBIT_WORDS = /\b(debited|spent|sent|paid|withdrawn|purchase|debit)\b/i;
-const CREDIT_WORDS = /\b(credited|received|credit|deposit|refund|cashback)\b/i;
+// 'credit' excludes 'credit card' so a debit on a credit card isn't read as a credit.
+const CREDIT_WORDS = /\b(credited|received|credit(?!\s*card)|deposit|refund|cashback)\b/i;
 
 export function normalize(text) {
   return String(text ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim();
@@ -57,12 +58,21 @@ function build(Y, Mo, D, hh, mi, se, fallbackMs) {
   const d = new Date(Y, Mo, D, hh, mi, se);
   const ms = d.getTime();
   if (!Number.isFinite(ms) || Y < 2000 || Y > 2100) return fallbackMs;
+  // Reject overflow dates (13-13-26, 32-06-26) that JS Date silently rolls over.
+  if (d.getMonth() !== Mo || d.getDate() !== D) return fallbackMs;
   return ms;
 }
 
-// A single SMS can name both verbs (SBI IMPS: "your a/c is debited ... and
-// a/c ... credited"). Anchor on the FIRST verb — that's the user's own account.
+const STRONG_DEBIT = /\b(debited|spent|withdrawn|paid)\b/i;
+const STRONG_CREDIT = /\b(credited|deposited)\b/i;
+
+// Unambiguous money-out verbs beat incidental credit-words ('refund'/'cashback'
+// can appear in a debit message). If only weak/positional cues exist, a single
+// SMS may name both (SBI IMPS) — anchor on the FIRST verb (the user's account).
 export function inferDirection(body) {
+  const sd = STRONG_DEBIT.test(body), sc = STRONG_CREDIT.test(body);
+  if (sd && !sc) return 'debit';
+  if (sc && !sd) return 'credit';
   const d = body.search(DEBIT_WORDS);
   const c = body.search(CREDIT_WORDS);
   if (d === -1) return c === -1 ? 'debit' : 'credit';
@@ -75,12 +85,23 @@ export function normalizeMerchant(raw) {
   return raw.replace(/\s+/g, ' ').replace(/[.,;:]+$/, '').trim();
 }
 
-// First matching merchant/keyword rule wins (rules pre-sorted by priority).
+const catReCache = new Map();
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function catRe(match) {
+  let re = catReCache.get(match);
+  if (!re) { re = new RegExp('\\b' + escapeRe(match) + '\\b', 'i'); catReCache.set(match, re); }
+  return re;
+}
+
+// Categorize on the MERCHANT first (the strongest signal), then fall back to the
+// whole body. Word-boundary matching so short keys ('ola','rent','lic','sip')
+// don't collide with substrings ('Motorola','torrent','police','gossip').
 export function categorize(merchant, body, rules) {
-  const hay = (merchant + ' ' + body).toLowerCase();
-  for (const r of rules) {
-    if (r.enabled === false) continue;
-    if (hay.includes(r.match)) return { category: r.categoryId, source: 'rule' };
+  for (const field of [merchant || '', body || '']) {
+    for (const r of rules) {
+      if (r.enabled === false) continue;
+      if (catRe(r.match).test(field)) return { category: r.categoryId, source: 'rule' };
+    }
   }
   return { category: 'uncategorized', source: 'default' };
 }
@@ -90,11 +111,14 @@ export function categorize(merchant, body, rules) {
 // fall back to a 1-minute bucket when no ref is present.
 // ponytail: 60s bucket can merge two identical-amount payments to the same
 // payee in the same minute (rare); upgrade = require ref strictly.
-export function buildDedupeKey({ accountLast4, bankKey, amount, direction, ref, ts }) {
+export function buildDedupeKey({ accountLast4, bankKey, amount, direction, ref, ts, merchant }) {
   const acct = accountLast4 || bankKey || 'na';
+  // With a ref the key is exact. Without one, the minute bucket alone is weak,
+  // so fold in the merchant; ingest.js adds the content hash when even that is
+  // empty (generic-parsed unknown banks) so distinct spends don't collide.
   return ref
     ? `${acct}|${amount}|${direction}|${ref}`
-    : `${acct}|${amount}|${direction}|${Math.floor(ts / 60000)}`;
+    : `${acct}|${amount}|${direction}|${Math.floor(ts / 60000)}|${(merchant || '').toLowerCase().slice(0, 24)}`;
 }
 
 const reCache = new Map();

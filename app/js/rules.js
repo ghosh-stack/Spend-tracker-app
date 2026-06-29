@@ -7,6 +7,7 @@
 //   (?<amount>) (?<merchant>) (?<datetime>) (?<acct>) (?<ref>)
 // Sources & format notes: see docs/ARCHITECTURE.md. SMS sender IDs are
 // spoofable, so senderPattern is only ever a weak hint, never proof.
+import { CUR, NUM } from './money.js';
 
 export const CATEGORIES = [
   { id: 'food', label: 'Food & Dining', icon: '🍽️', color: '#FF6B57', kind: 'expense' },
@@ -26,8 +27,8 @@ export const CATEGORIES = [
   { id: 'uncategorized', label: 'Uncategorized', icon: '❔', color: '#64748B', kind: 'expense' },
 ];
 
-// Reusable amount fragment: Rs. / Rs / INR / ₹, with optional space, lakh commas.
-const A = '(?:Rs\\.?|INR|₹)\\s*(?<amount>[\\d,]+(?:\\.\\d{1,2})?)';
+// Reusable amount fragment (built from the shared grammar in money.js).
+const A = `${CUR}\\s*(?<amount>${NUM})`;
 
 export const PARSE_RULES = [
   // ── HDFC ──────────────────────────────────────────────────────────────────
@@ -48,7 +49,9 @@ export const PARSE_RULES = [
   { id: 'sbi-acct-debit', bankKey: 'sbi', priority: 14, channel: 'sms', direction: 'debit', method: 'netbanking',
     pattern: `a\\/c no\\.?\\s*X*(?<acct>\\d{3,4})\\s+is debited for\\s+${A}\\s+on\\s+(?<datetime>\\d{2}-\\d{2}-\\d{2,4}).*?Ref no\\s+(?<ref>\\d{9,16})` },
   { id: 'sbi-acct-credit', bankKey: 'sbi', priority: 14, channel: 'sms', direction: 'credit', method: 'netbanking',
-    pattern: `A\\/C\\s*X*(?<acct>\\d{3,4})\\s+Credited\\s+${A}\\s+on\\s+(?<datetime>\\d{2}\\/\\d{2}\\/\\d{2,4}).*?from\\s+(?<merchant>.+?)\\.\\s*Avl Bal` },
+    // SBI masks this as XXXXX987788 (5 X's + 6 visible digits) — consume the
+    // X's AND any leading digits, capturing only the last 4 for the account tail.
+    pattern: `A\\/C\\s*[X\\d]*(?<acct>\\d{3,4})\\s+Credited\\s+${A}\\s+on\\s+(?<datetime>\\d{2}\\/\\d{2}\\/\\d{2,4}).*?from\\s+(?<merchant>.+?)\\.\\s*Avl Bal` },
 
   // ── ICICI ─────────────────────────────────────────────────────────────────
   { id: 'icici-card-debit', bankKey: 'icici', priority: 10, channel: 'sms', direction: 'debit', method: 'card',
@@ -96,11 +99,15 @@ export const PARSE_RULES = [
   { id: 'sbicard-email-debit', bankKey: 'sbicard', priority: 12, channel: 'email', direction: 'debit', method: 'card',
     pattern: `SBI Card ending\\s+(?<acct>\\d{3,4})\\s+for\\s+${A}\\s+at\\s+(?<merchant>.+?)\\s+on\\s+(?<datetime>\\d{2}\\/\\d{2}\\/\\d{2,4}\\s+\\d{2}:\\d{2}:\\d{2})\\.\\s*Your available credit limit` },
 
-  // ── Generic fallback (any bank). Gated: requires BOTH a masked account/card
-  //    tail AND a currency amount present, so marketing texts ("spend Rs.2000,
-  //    get cashback") without an account tail do NOT match. Direction inferred.
+  // ── Generic fallback (any bank). Gated on THREE things co-occurring: a masked
+  //    account/card tail, a transaction VERB, and a currency amount. The verb
+  //    requirement is what rejects marketing that cites your card last-4
+  //    ("Use Card xx1234 to spend... get cashback", "Card xx8888 eligible for a
+  //    loan") — those have a tail + amount but no debited/spent/credited verb.
+  //    The gap class [^\dxX*] (not [\s\w.]) removes the quantifier overlap that
+  //    would otherwise allow catastrophic backtracking (ReDoS). Direction inferred.
   { id: 'generic-tail+amount', bankKey: '*', priority: 90, channel: 'any', direction: null, method: 'other',
-    pattern: `^(?=.*\\b(?:a\\/?c|acct|account|card)\\b[\\s\\w.]*?[xX*]+\\d{3,4})(?=.*(?:Rs\\.?|INR|₹)\\s*[\\d,]+).*?${A}` },
+    pattern: `^(?=.*\\b(?:a\\/?c|acct|account|card)\\b[^\\dxX*]{0,40}?[xX*]{1,6}\\d{3,4})(?=.*\\b(?:debited|credited|spent|sent|paid|withdrawn|received|debit|credit)\\b)(?=.*${CUR}\\s*[\\d,]+).*?${A}` },
 ];
 
 // First match wins — order matters. Specific/qualified keywords come BEFORE the

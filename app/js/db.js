@@ -75,8 +75,6 @@ export const get = (store, key) => withStore(store, 'readonly', (s) => done(s.ge
 export const getAll = (store) => withStore(store, 'readonly', (s) => done(s.getAll()));
 export const put = (store, value) => withStore(store, 'readwrite', (s) => done(s.put(value)));
 export const del = (store, key) => withStore(store, 'readwrite', (s) => done(s.delete(key)));
-export const clear = (store) => withStore(store, 'readwrite', (s) => done(s.clear()));
-export const count = (store) => withStore(store, 'readonly', (s) => done(s.count()));
 
 export const getAllByIndex = (store, index, query) =>
   withStore(store, 'readonly', (s) => done(s.index(index).getAll(query)));
@@ -88,39 +86,18 @@ export const getAllByIndex = (store, index, query) =>
  */
 export function addUnique(store, value) {
   return withStore(store, 'readwrite', (s) =>
-    new Promise((resolve) => {
+    new Promise((resolve, reject) => {
       const req = s.add(value);
       req.onsuccess = () => resolve({ ok: true, key: req.result });
       req.onerror = (e) => {
         if (req.error && req.error.name === 'ConstraintError') {
-          e.preventDefault(); // swallow so the whole tx doesn't abort
+          e.preventDefault(); // a duplicate — swallow so the whole tx doesn't abort
           resolve({ ok: false, duplicate: true });
+        } else {
+          reject(req.error); // a real write failure (e.g. QuotaExceeded) — surface it
         }
       };
     })
-  );
-}
-
-/**
- * Run a function over multiple stores inside ONE transaction (atomic — either
- * all writes land or none). Used to write a transaction and flip its source
- * raw_message to status=parsed together, so the audit log can never disagree
- * with the derived data. never-lazy: data integrity.
- */
-export function tx(storeNames, mode, fn) {
-  return openDB().then(
-    (db) =>
-      new Promise((resolve, reject) => {
-        const t = db.transaction(storeNames, mode);
-        const stores = Object.fromEntries(
-          (Array.isArray(storeNames) ? storeNames : [storeNames]).map((n) => [n, t.objectStore(n)])
-        );
-        let out;
-        Promise.resolve(fn(stores, done)).then((v) => { out = v; }).catch(reject);
-        t.oncomplete = () => resolve(out);
-        t.onerror = () => reject(t.error);
-        t.onabort = () => reject(t.error || new Error('aborted'));
-      })
   );
 }
 

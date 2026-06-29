@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { toMinor, parseAmount } from '../app/js/money.js';
-import { parseMessage, parseDate, inferDirection } from '../app/js/parser.js';
+import { parseMessage, parseDate, inferDirection, categorize } from '../app/js/parser.js';
 import { PARSE_RULES, CATEGORIZE_RULES } from '../app/js/rules.js';
 
 const rules = {
@@ -114,4 +114,42 @@ test('dedupe key is stable for the same transaction across channels', () => {
   const b = parse('Sent Rs.499.00 From HDFC Bank A/C x1234 To SWIGGY On 28-06-26 Ref 451234567890').txn;
   assert.equal(a.dedupeKey, b.dedupeKey);
   assert.ok(a.dedupeKey.includes('451234567890'));
+});
+
+// ── regression tests for the review findings ────────────────────────────────
+
+test('money: a 3-decimal amount is REJECTED, not truncated', () => {
+  assert.equal(parseAmount('Rs.100.999'), null); // was silently read as 100.99
+  assert.equal(parseAmount('Rs.100.99'), 10099);
+});
+
+test('parseDate: out-of-range month/day falls back instead of rolling over', () => {
+  assert.equal(parseDate('13-13-26', 999), 999); // month 13 used to roll to next Jan
+  assert.equal(parseDate('32-06-26', 999), 999); // day 32 used to roll to Jul 2
+});
+
+test('generic fallback: marketing that cites a card last-4 is REJECTED (no txn verb)', () => {
+  assert.equal(parse('Use your Card xx1234 to spend Rs.2000 and get Rs.150 cashback! T&C apply').status, 'unparsed');
+  assert.equal(parse('Pre-approved! Your Card xx8888 is eligible for a Rs.50,000 loan. Apply now').status, 'unparsed');
+  assert.equal(parse('Your account xx4567 will be charged Rs.999 if you do not opt out. Reply STOP').status, 'unparsed');
+});
+
+test('SBI account-credit matches the real 5-X / 6-digit mask and keeps the merchant', () => {
+  const { txn } = parse("Your A/C XXXXX987788 Credited INR 1,25,000.00 on 15/06/26 -Deposit by transfer from ACME CORP SALARY. Avl Bal INR 2,10,000.00-SBI");
+  assert.equal(txn.amount, 12500000);
+  assert.equal(txn.merchant, 'ACME CORP SALARY'); // was lost to the generic fallback before
+  assert.equal(txn.category, 'income');
+});
+
+test('categorize: word boundaries stop short-key substring collisions', () => {
+  const cat = (m, body = '') => categorize(m, body, CATEGORIZE_RULES).category;
+  assert.notEqual(cat('TORRENT PHARMA'), 'housing'); // "torrent" must not hit "rent"
+  assert.notEqual(cat('Motorola'), 'transport');     // "Motorola" must not hit "ola"
+  assert.equal(cat('SWIGGY'), 'food');               // real merchant still matches
+  assert.equal(cat('netflix@hdfcbank'), 'entertainment');
+});
+
+test('inferDirection: a strong debit verb beats an incidental "refund"/"cashback"', () => {
+  assert.equal(inferDirection('Refund processed: Rs.500 debited from A/c x1234 to vendor'), 'debit');
+  assert.equal(inferDirection('Rs.200 cashback offer; Rs.1000 spent on card xx1234'), 'debit');
 });

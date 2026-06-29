@@ -16,6 +16,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, normalize, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { timingSafeEqual } from 'node:crypto';
 
 const ROOT = fileURLToPath(new URL('../app/', import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -39,8 +40,14 @@ const queue = [];
 let seq = 0;
 
 const send = (res, status, body, headers = {}) => {
-  res.writeHead(status, { 'cache-control': 'no-store', ...headers });
+  res.writeHead(status, { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...headers });
   res.end(body);
+};
+
+// Constant-time token comparison (no early-out timing side channel).
+const safeEq = (a, b) => {
+  const ab = Buffer.from(String(a)), bb = Buffer.from(String(b));
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
 };
 const json = (res, status, obj) =>
   send(res, status, JSON.stringify(obj), { 'content-type': MIME['.json'] });
@@ -67,7 +74,7 @@ function authed(req) {
   if (!TOKEN) return true; // no token configured -> open (localhost only anyway)
   const h = req.headers['authorization'] || '';
   const bearer = h.startsWith('Bearer ') ? h.slice(7) : '';
-  return bearer === TOKEN || req.headers['x-ingest-token'] === TOKEN;
+  return safeEq(bearer, TOKEN) || safeEq(req.headers['x-ingest-token'] || '', TOKEN);
 }
 
 async function handleIngest(req, res) {

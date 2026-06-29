@@ -27,25 +27,29 @@ export function applyFilter(txns, { range = 'month', category = null, accountId 
 }
 
 const isSpend = (t) => t.direction === 'debit' && categoryById(t.category).kind === 'expense';
-const isIncome = (t) => t.direction === 'credit' && categoryById(t.category).kind === 'income';
 
 export function summarize(txns) {
   let spent = 0, income = 0, transfers = 0;
   const byCat = new Map();
   for (const t of txns) {
-    if (isSpend(t)) {
-      spent += t.amount;
-      const e = byCat.get(t.category) || { categoryId: t.category, amount: 0, count: 0 };
-      e.amount += t.amount; e.count++;
-      byCat.set(t.category, e);
-    } else if (isIncome(t)) {
-      income += t.amount;
-    } else if (categoryById(t.category).kind === 'transfer') {
+    const kind = categoryById(t.category).kind;
+    if (kind === 'income') {
+      income += t.direction === 'credit' ? t.amount : -t.amount;
+    } else if (kind === 'transfer') {
       transfers += t.amount;
+    } else {
+      // expense category: a debit is spend; a credit (refund/reversal) reduces it,
+      // so net reconciles with the feed instead of silently dropping the credit.
+      const signed = t.direction === 'debit' ? t.amount : -t.amount;
+      spent += signed;
+      const e = byCat.get(t.category) || { categoryId: t.category, amount: 0, count: 0 };
+      e.amount += signed; e.count++;
+      byCat.set(t.category, e);
     }
   }
   const categories = [...byCat.values()]
-    .map((e) => ({ ...e, ...categoryById(e.categoryId), pct: spent ? (e.amount / spent) * 100 : 0 }))
+    .filter((e) => e.amount > 0) // a net-negative category (refunds exceed spend) drops off the donut
+    .map((e) => ({ ...e, ...categoryById(e.categoryId), pct: spent > 0 ? (e.amount / spent) * 100 : 0 }))
     .sort((a, b) => b.amount - a.amount);
   return {
     spent, income, transfers, net: income - spent,
@@ -58,15 +62,27 @@ export function summarize(txns) {
 /** Time buckets for the trend chart. unit: 'day' | 'week' | 'month'. */
 export function series(txns, range, now = Date.now()) {
   const unit = range === 'year' || range === 'all' ? 'month' : range === 'quarter' ? 'week' : 'day';
-  const start = rangeStart(range === 'all' ? 'year' : range, now);
+  // For 'all', span from the earliest spend (not just this calendar year) so the
+  // chart reconciles with the 'All time' KPI; otherwise use the range window.
+  let start;
+  if (range === 'all') {
+    const spends = txns.filter(isSpend);
+    const min = spends.length ? Math.min(...spends.map((t) => t.ts)) : now;
+    const md = new Date(min);
+    start = new Date(md.getFullYear(), md.getMonth(), 1).getTime();
+  } else {
+    start = rangeStart(range, now);
+  }
   const buckets = [];
   const d0 = new Date(start);
 
   if (unit === 'month') {
-    for (let i = 0; i < 12; i++) {
+    const span = (new Date(now).getFullYear() - d0.getFullYear()) * 12 + (new Date(now).getMonth() - d0.getMonth()) + 1;
+    for (let i = 0; i < Math.max(1, span); i++) {
       const dt = new Date(d0.getFullYear(), d0.getMonth() + i, 1);
       if (dt.getTime() > now) break;
-      buckets.push({ ts: dt.getTime(), label: dt.toLocaleString('en-IN', { month: 'short' }), amount: 0 });
+      const label = dt.toLocaleString('en-IN', { month: 'short' }) + (span > 12 ? ` '${String(dt.getFullYear()).slice(-2)}` : '');
+      buckets.push({ ts: dt.getTime(), label, amount: 0 });
     }
     for (const t of txns) {
       if (!isSpend(t)) continue;

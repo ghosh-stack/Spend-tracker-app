@@ -6,7 +6,14 @@
 //   "Rs.499.00", "Rs 499", "INR 1,299.00", bare "Rs2499.0", "₹1,23,456.78"
 // The comma grouping is 2-2-3 from the right (lakh), NOT thousands — so we
 // strip ALL commas before parsing rather than assuming Western groups.
-const AMOUNT_RE = /(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i;
+//
+// Single source of truth for the amount grammar — rules.js builds its named
+// capture group from the same fragments so the two can't drift apart.
+// NUM grabs ALL decimals (not just two) so a malformed 3-decimal amount is
+// REJECTED by toMinor rather than silently truncated to two.
+export const CUR = '(?:Rs\\.?|INR|₹)';
+export const NUM = '[\\d,]+(?:\\.\\d+)?';
+const AMOUNT_RE = new RegExp(`${CUR}\\s*(${NUM})`, 'i');
 
 /** Parse the first currency amount in a string to integer paise, or null. */
 export function parseAmount(text) {

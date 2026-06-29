@@ -3,7 +3,7 @@
 // styles.css, so these stay static and cheap to re-render.
 import { formatMoney } from './money.js';
 
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+export const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /** Donut from category slices [{label,color,amount,pct}]. pathLength=100 lets
  *  stroke-dasharray use percentages directly regardless of radius. */
@@ -45,11 +45,17 @@ export function bars(buckets) {
     return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" class="grid"></line>`;
   }).join('');
 
+  // Emphasize the latest bucket that has actually started — the final bucket is
+  // often an empty future period (e.g. tomorrow), so don't blindly take the last.
+  const nowMs = Date.now();
+  let emphIdx = buckets.length - 1;
+  for (let i = 0; i < buckets.length; i++) if (buckets[i].ts <= nowMs) emphIdx = i;
+
   const rects = buckets.map((b, i) => {
     const h = Math.round((b.amount / max) * innerH);
     const x = padL + i * (innerW / n) + gap / 2;
     const y = padT + innerH - h;
-    const last = i === buckets.length - 1;
+    const last = i === emphIdx;
     return `<rect class="bar${last ? ' bar-emph' : ''}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"
       width="${bw.toFixed(1)}" height="${Math.max(h, b.amount > 0 ? 2 : 0).toFixed(1)}" rx="${Math.min(4, bw / 2).toFixed(1)}">
       <title>${esc(b.label)} · ${esc(formatMoney(b.amount))}</title></rect>`;

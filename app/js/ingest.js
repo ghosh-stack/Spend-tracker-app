@@ -39,7 +39,6 @@ async function rules() {
   _rules = { parseRules, categorizeRules: [...userCats, ...CATEGORIZE_RULES] };
   return _rules;
 }
-export function invalidateRules() { _rules = null; }
 
 // ── account resolution ────────────────────────────────────────────────────────
 function accountTypeFor(method) {
@@ -70,7 +69,9 @@ async function resolveAccount(bankKey, last4, method) {
  */
 export async function ingestRaw(msg) {
   // HTTP ingest contract uses "text"; internal callers use "body". Accept both.
-  const body = String(msg.body ?? msg.text ?? '');
+  // Cap length: bank alerts are tiny, and an unbounded body is a needless DoS
+  // surface for the regex engine.
+  const body = String(msg.body ?? msg.text ?? '').slice(0, 4000);
   if (!body.trim()) return 'ignored';
   const source = msg.source || 'manual';
   const sender = msg.sender || '';
@@ -81,18 +82,16 @@ export async function ingestRaw(msg) {
   const id = uuid();
   const hash = await contentHash(`${source}|${sender}|${body}`);
 
-  const intake = await db.addUnique('raw_messages', {
-    id, source, sender, body, receivedAt, ingestedAt: Date.now(),
-    contentHash: hash, status: 'pending', producedTxnId: null,
-  });
+  // One base record; each branch only varies status + producedTxnId.
+  const base = { id, source, sender, body, receivedAt, contentHash: hash };
+  const rawRec = (status, producedTxnId = null) => ({ ...base, ingestedAt: Date.now(), status, producedTxnId });
+
+  const intake = await db.addUnique('raw_messages', rawRec('pending'));
   if (!intake.ok) return 'duplicate'; // exact message already ingested
 
   const { status, txn } = parseMessage({ source, sender, body, receivedAt }, await rules());
   if (status !== 'parsed') {
-    await db.put('raw_messages', {
-      id, source, sender, body, receivedAt, ingestedAt: Date.now(),
-      contentHash: hash, status: 'unparsed', producedTxnId: null,
-    });
+    await db.put('raw_messages', rawRec('unparsed'));
     emit({ type: 'unparsed' });
     return 'unparsed';
   }
@@ -102,23 +101,21 @@ export async function ingestRaw(msg) {
   txn.rawMessageId = id;
   txn.createdAt = Date.now();
   txn.notes = '';
+  // A generic-parsed txn with no ref AND no account has only a weak minute-bucket
+  // key; fold in the content hash so two distinct unknown-bank spends in the same
+  // minute don't collide and silently drop one.
+  if (!txn.ref && !txn.accountLast4) txn.dedupeKey += '|' + hash.slice(0, 16);
 
   // Transaction-level dedupe: the DB's unique by_dedupeKey index is the gate.
   const added = await db.addUnique('transactions', txn);
   if (!added.ok) {
-    await db.put('raw_messages', {
-      id, source, sender, body, receivedAt, ingestedAt: Date.now(),
-      contentHash: hash, status: 'duplicate', producedTxnId: null,
-    });
+    await db.put('raw_messages', rawRec('duplicate'));
     return 'duplicate-txn';
   }
 
-  // Flip the source message to parsed in the same record (atomic enough: the
-  // txn is already committed; this only updates provenance).
-  await db.put('raw_messages', {
-    id, source, sender, body, receivedAt, ingestedAt: Date.now(),
-    contentHash: hash, status: 'parsed', producedTxnId: txn.id,
-  });
+  // Flip the source message to parsed (the txn is already committed; this only
+  // updates provenance, so a crash between the two leaves a re-derivable record).
+  await db.put('raw_messages', rawRec('parsed', txn.id));
   emit({ type: 'transaction', txn });
   return 'parsed';
 }
@@ -163,25 +160,30 @@ export async function deleteTxn(txnId) {
 // adapters. If the page is served by a plain static host (no /ingest route),
 // the first failure disables polling silently — the PWA still works standalone.
 let pollTimer = null;
+let polling = false;
 export function startLivePoll(intervalMs = 4000) {
-  if (pollTimer) return;
+  if (polling) return;
+  polling = true;
+  // Self-rescheduling (not setInterval) so a slow batch never overlaps the next
+  // tick. The whole body is guarded: a DB error mid-batch must not become an
+  // unhandled rejection that silently re-fires every interval.
   const tick = async () => {
-    let res;
     try {
-      res = await fetch('/ingest/pending', { headers: { 'cache-control': 'no-store' } });
-    } catch { return stopLivePoll(); } // no bridge -> stop quietly
-    if (!res.ok) return stopLivePoll();
-    const { messages } = await res.json().catch(() => ({ messages: [] }));
-    let n = 0;
-    for (const m of messages || []) {
-      const r = await ingestRaw(m);
-      if (r === 'parsed') n++;
-    }
-    if (n) emit({ type: 'batch', count: n });
+      const res = await fetch('/ingest/pending', { headers: { 'cache-control': 'no-store' } });
+      if (!res.ok) return stopLivePoll();
+      const { messages } = await res.json().catch(() => ({ messages: [] }));
+      let n = 0;
+      for (const m of messages || []) {
+        try { if ((await ingestRaw(m)) === 'parsed') n++; }
+        catch (e) { console.error('ingest error', e); } // skip the bad one, keep the batch
+      }
+      if (n) emit({ type: 'batch', count: n });
+    } catch { return stopLivePoll(); } // no bridge / network gone -> stop quietly
+    if (polling) pollTimer = setTimeout(tick, intervalMs);
   };
-  pollTimer = setInterval(tick, intervalMs);
   tick();
 }
 export function stopLivePoll() {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  polling = false;
+  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
 }
