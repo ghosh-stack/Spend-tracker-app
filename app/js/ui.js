@@ -40,6 +40,70 @@ export function initUI() {
   });
 
   wireIcons();
+  wireSwipe();
+}
+
+// Swipe a feed row: left → delete (with Undo), right → recategorize. Pointer
+// events cover touch + mouse; touch-action:pan-y (CSS) keeps vertical scroll native.
+function wireSwipe() {
+  let row = null, id = null, startX = 0, startY = 0, dx = 0, locked = false, decided = false;
+  const THRESH = 90;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reset = (r) => { r.style.transition = reduce ? 'none' : 'transform .2s var(--ease), background .2s'; r.style.transform = ''; r.style.background = ''; delete r.dataset.swipe; };
+  document.addEventListener('pointerdown', (e) => {
+    if (e.button) return;
+    const r = e.target.closest('#feedCard .feed .row[data-id]');
+    if (!r || e.target.closest('button, a, input, textarea, select')) return;
+    row = r; id = r.dataset.id; startX = e.clientX; startY = e.clientY; dx = 0; locked = false; decided = false;
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!row) return;
+    const ddx = e.clientX - startX, ddy = e.clientY - startY;
+    if (!decided) {
+      if (Math.abs(ddx) < 8 && Math.abs(ddy) < 8) return;
+      decided = true; locked = Math.abs(ddx) > Math.abs(ddy);
+      if (!locked) { row = null; return; }      // vertical intent → release to native scroll
+      row.style.transition = 'none';
+    }
+    dx = ddx;
+    row.style.transform = `translateX(${dx}px)`;
+    row.style.background = dx < 0 ? 'var(--neg-soft)' : 'var(--accent-soft)';
+    row.dataset.swipe = dx < 0 ? 'del' : 'cat';
+  });
+  const end = async () => {
+    if (!row) return;
+    const r = row, theId = id, d = dx; row = null;
+    if (Math.abs(d) > THRESH) {
+      if (d < 0) {
+        r.style.transition = reduce ? 'none' : 'transform .2s var(--ease), opacity .2s';
+        r.style.transform = 'translateX(-110%)'; r.style.opacity = '0';
+        const txn = await db.get('transactions', theId).catch(() => null);
+        await ingest.deleteTxn(theId);
+        showUndo(txn);
+        render();
+      } else {
+        reset(r);
+        openEditModal(theId);
+      }
+    } else reset(r);
+  };
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', () => { if (row) { reset(row); row = null; } });
+}
+
+let _undoTimer;
+function showUndo(txn) {
+  const el = $('#toast');
+  if (!txn) { toast('Deleted'); return; }
+  el.innerHTML = 'Deleted · <button class="link-btn" id="undoBtn" type="button">Undo</button>';
+  el.classList.add('show');
+  clearTimeout(_undoTimer);
+  _undoTimer = setTimeout(() => el.classList.remove('show'), 5000);
+  $('#undoBtn').addEventListener('click', async () => {
+    clearTimeout(_undoTimer); el.classList.remove('show');
+    await db.put('transactions', txn);
+    render();
+  }, { once: true });
 }
 
 // Swap the static unicode/emoji chrome glyphs for the cohesive inline-SVG set.
