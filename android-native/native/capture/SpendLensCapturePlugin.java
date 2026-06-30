@@ -7,6 +7,13 @@ import android.provider.Settings;
 
 import androidx.core.app.NotificationManagerCompat;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -82,6 +89,61 @@ public class SpendLensCapturePlugin extends Plugin {
   public void drainQueue(PluginCall call) {
     CaptureQueue.drain(getContext());
     call.resolve();
+  }
+
+  // Open a URL (the new APK asset or the release page) in the system handler.
+  // ACTION_VIEW lets the browser's download manager fetch the .apk, which the
+  // user then taps to install over the existing app (data preserved).
+  @PluginMethod
+  public void openExternal(PluginCall call) {
+    String url = call.getString("url");
+    if (url == null || url.isEmpty()) { call.reject("missing url"); return; }
+    try {
+      Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+      i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      getContext().startActivity(i);
+      call.resolve();
+    } catch (Exception e) {
+      call.reject("cannot open url", e);
+    }
+  }
+
+  // Fetch the latest GitHub release JSON on a background thread (network on the
+  // main thread is forbidden). Done natively so the WebView keeps connect-src
+  // 'self' — the only third-party egress is this user-initiated lookup. Returns
+  // { code, body } to JS, which parses + compares versions (see app/js/update.js).
+  @PluginMethod
+  public void checkUpdate(PluginCall call) {
+    final String repo = call.getString("repo", "");
+    if (repo.isEmpty()) { call.reject("missing repo"); return; } // surface misconfig, not a fake "no update"
+    new Thread(() -> {
+      HttpURLConnection conn = null;
+      try {
+        URL url = new URL("https://api.github.com/repos/" + repo + "/releases/latest");
+        conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestProperty("Accept", "application/vnd.github+json");
+        conn.setRequestProperty("User-Agent", "SpendLens"); // GitHub rejects requests with no UA
+        conn.setConnectTimeout(8000);
+        conn.setReadTimeout(8000);
+        int code = conn.getResponseCode();
+        JSObject r = new JSObject();
+        r.put("code", code);
+        if (code == 200) {
+          InputStream is = conn.getInputStream();
+          BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+          StringBuilder sb = new StringBuilder();
+          String line;
+          while ((line = br.readLine()) != null) sb.append(line);
+          br.close();
+          r.put("body", sb.toString());
+        }
+        call.resolve(r);
+      } catch (Exception e) {
+        call.reject("network error", e);
+      } finally {
+        if (conn != null) conn.disconnect();
+      }
+    }).start();
   }
 
   private void resolveGranted(PluginCall call, boolean granted) {

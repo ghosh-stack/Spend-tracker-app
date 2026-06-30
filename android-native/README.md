@@ -39,10 +39,11 @@ cd android && ./gradlew assembleDebug
 ```
 `npm run open` opens the project in Android Studio if you prefer to build there.
 
-> This repo ships the **source + CI**, not a prebuilt signed APK — signing needs
-> your own keystore on your own machine. A debug-signed APK installs fine for
-> personal use; for a release-signed one, add a keystore as CI secrets (the
-> workflow has an opt-in signed path).
+> This repo ships the **source + CI**, not a prebuilt signed APK. The CI builds a
+> **debug-signed** APK (Gradle auto-generates the debug keystore — no secrets
+> needed), which installs fine for personal sideloading. A release-signed build
+> would need you to add your own keystore and signing config locally; the CI has
+> no release-signing path.
 
 ## First run (on the phone)
 
@@ -54,6 +55,27 @@ A one-time wizard requests, with an explanation before each:
 
 Each step is skippable; manual paste/import always works. A capture-status screen
 shows what's granted and when the last alert was captured.
+
+## Updating the app
+
+Sideloaded APKs can't auto-update (Android security), so SpendLens has a built-in
+checker: **More → ⟳ Check for updates**. It asks the GitHub Releases API for the
+latest version and, if it's newer than the installed one, flips to a **Download**
+button that opens the new APK. Install it over the top — **your data is kept**
+(reinstalling an APK preserves app storage; only an *uninstall* clears IndexedDB).
+
+The check is a version-only lookup made by the native layer (so the WebView keeps
+its strict `connect-src 'self'` CSP); no personal or financial data is sent. The
+running version is stamped into the build from the release tag (CI step
+*"Stamp app version from tag"*), so untagged/manual builds report `0.0.0-dev` and
+will always see a published release as an update.
+
+> The checker needs the repo's **Releases to be public** (the lookup and the APK
+> download are unauthenticated). For a private repo it reports "no releases found".
+
+**Release flow:** push a `vX.Y.Z` tag → the *Android APK* Action builds the APK,
+stamps `vX.Y.Z` as the version, and attaches it to a GitHub Release → users tap
+**Check for updates** and pull it.
 
 ## What's where
 
@@ -69,7 +91,8 @@ android-native/
       SmsReceiver.java              incoming-SMS BroadcastReceiver
       SpendLensNotificationListener.java  email + bank-push capture
       CaptureBridge.java / CaptureQueue.java  deliver-or-buffer to the WebView
-../app/js/native-capture.js    web glue (onboarding, queue drain) — loaded only in the wrapper
+../app/js/native-capture.js    web glue (onboarding, queue drain, openExternal/checkUpdate) — wrapper only
+../app/js/update.js            in-app updater (GitHub Releases check) + ../app/js/version.js (stamped version)
 ```
 
 ## Honest limitations

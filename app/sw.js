@@ -1,19 +1,26 @@
 // Service worker: precache the app shell so SpendLens installs and runs offline.
 // The /ingest bridge is never cached (it must hit the live local server or fail
 // gracefully). Bump CACHE on any shell change to invalidate old copies.
-const CACHE = 'spendlens-v3';
+const CACHE = 'spendlens-v4';
 const SHELL = [
   '.', 'index.html', 'manifest.webmanifest',
   'css/styles.css',
   'js/app.js', 'js/ui.js', 'js/db.js', 'js/ingest.js', 'js/parser.js',
   'js/rules.js', 'js/money.js', 'js/queries.js', 'js/charts.js',
-  'js/lock.js', 'js/notify.js',
+  'js/lock.js', 'js/notify.js', 'js/native-capture.js',
+  'js/version.js', 'js/update.js',
   'data/sample-notifications.json',
   'icons/icon.svg',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // {cache:'reload'} bypasses the HTTP cache so precache always fetches fresh
+  // copies from the origin — a stale shell asset can't re-poison the new cache.
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {

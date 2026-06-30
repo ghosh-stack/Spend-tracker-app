@@ -35,6 +35,21 @@ jobs:
       # ../app, inject the native capture code, and patch the manifest.
       - run: npm install
       - run: npx cap add android
+
+      # On tag builds, stamp the running version into the web bundle (read by the
+      # in-app updater) from the tag — e.g. v0.2.0 → '0.2.0'. Must precede cap sync,
+      # which copies ../app into the android project. Manual builds keep '0.0.0-dev'.
+      - name: Stamp app version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          {
+            echo "// Stamped by CI from the release tag.";
+            echo "export const APP_VERSION = '${VER}';";
+            echo "export const REPO = 'ghosh-stack/Spend-tracker-app';";
+          } > ../app/js/version.js
+          cat ../app/js/version.js
+
       - run: npx cap sync android
       - run: node scripts/apply-native.mjs
 

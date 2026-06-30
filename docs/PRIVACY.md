@@ -15,15 +15,21 @@ server**, so there is nowhere for your financial data to go.
 | Bank credentials | Only if you use the email-IMAP adapter: a gitignored `.env` / env vars on your machine | Only to **your own** mail server, over IMAP+TLS. |
 | Android SMS / notification text | Captured by the native app, fed straight into on-device parsing | **Never** — no egress; the notification listener only reads an allow-list of mail/bank apps. |
 | Card numbers | Not stored. Accounts keep a display `last4` only. | N/A |
+| In-app update check | Nothing stored | **Only when you tap "Check for updates":** a version lookup to GitHub's release API. No personal or financial data is sent. |
 
 ## No transmission, no telemetry
 
 - The PWA makes **zero outbound network calls**. The service worker only serves
   the local cache; it contacts no third party.
 - **No analytics, no crash reporting, no trackers, no ads.**
-- The only network traffic in the entire system is optional and stays on your
-  own infrastructure: (a) the email poller ↔ *your* mail server, and (b) the
-  adapters → `127.0.0.1` (the local bridge).
+- Outbound network traffic is limited to: (a) the optional email poller ↔ *your*
+  mail server, and (b) the adapters → `127.0.0.1` (the local bridge) — both on
+  your own infrastructure; plus (c) the in-app updater → GitHub's release API,
+  **only when you tap "Check for updates"**, to compare your installed version
+  against the latest release. It sends no personal or financial data — a standard
+  version lookup (GitHub sees your IP, as with any web request). It runs as a
+  native call, so the web layer's `connect-src 'self'` CSP stays untouched and the
+  WebView itself still makes zero third-party calls.
 
 ## GDPR data-subject rights
 

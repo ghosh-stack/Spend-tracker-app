@@ -40,6 +40,18 @@ async function main() {
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
+    // If the page was already controlled at load, a later controllerchange means
+    // a freshly deployed SW just took over — reload once so the new shell (e.g.
+    // updated categories) runs instead of the stale in-memory modules. Guarding
+    // on an existing controller skips the first-install case (no reload loop).
+    if (navigator.serviceWorker.controller) {
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;
+        reloading = true;
+        location.reload();
+      });
+    }
   }
 
   // Native-wrapper hook (Capacitor): the SMS receiver / notification listener

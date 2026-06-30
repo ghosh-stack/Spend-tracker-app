@@ -9,6 +9,7 @@ import { applyFilter, summarize, series, relativeTime, rangeStart, insights, det
 import { donut, bars, sparkline, esc } from './charts.js';
 import { formatMoney, splitMoney, toMinor } from './money.js';
 import { CATEGORIES, categoryById } from './rules.js';
+import { checkForUpdate, openDownload, currentVersion } from './update.js';
 
 const $ = (sel) => document.querySelector(sel);
 const RANGES = [['week', 'Week'], ['month', 'Month'], ['quarter', 'Quarter'], ['year', 'Year'], ['all', 'All']];
@@ -402,6 +403,7 @@ async function onClick(e) {
     case 'paste': openPasteModal(); break;
     case 'menu': openMenuModal(); break;
     case 'settings': openSettingsModal(); break;
+    case 'updates': openUpdatesModal(); break;
     case 'edit': openEditModal(id); break;
     case 'filtertxn': state.view = 'transactions'; state.category = t.dataset.cat; state.search = ''; render(); break;
     case 'addfrom': { const m = await db.get('raw_messages', id); openAddModal(m?.body); break; }
@@ -532,8 +534,48 @@ function openMenuModal() {
       <button class="btn" data-action="import">Import file (.json / .csv)</button>
       <button class="btn" data-action="sample">Load demo data</button>
       <button class="btn" data-action="export">Export my data</button>
+      <button class="btn" data-action="updates">⟳ Check for updates</button>
       <button class="btn" data-action="erase" style="color:var(--negative)">Erase all data</button>
     </div>`);
+}
+
+// In-app updater: shows the running version and checks GitHub Releases for a
+// newer sideloadable APK. One button that flips from "Check" to "Download".
+function openUpdatesModal() {
+  openModal(`<div class="modal-head"><h3>Updates</h3><button class="btn ghost icon" data-action="close" aria-label="Close">✕</button></div>
+    <div class="modal-body" style="gap:12px">
+      <p class="hint">You're running <b>SpendLens v${esc(currentVersion)}</b>. Tapping below asks GitHub for the latest release — a one-off version lookup; nothing about your data leaves the device.</p>
+      <div id="updateStatus" class="hint" aria-live="polite" style="min-height:20px"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn primary" id="updateBtn" type="button">Check for updates</button>
+        <button class="btn ghost" id="updateNotes" type="button" hidden>Release notes ↗</button>
+      </div>
+    </div>`);
+  const statusEl = $('#updateStatus');
+  const btn = $('#updateBtn');
+  const notesBtn = $('#updateNotes');
+  let downloadUrl = null;
+  btn.addEventListener('click', async () => {
+    if (downloadUrl) { openDownload(downloadUrl); return; } // second tap = download
+    btn.disabled = true;
+    statusEl.textContent = 'Checking…';
+    const r = await checkForUpdate();
+    btn.disabled = false;
+    if (r.status === 'available') {
+      statusEl.innerHTML = `<span style="color:var(--positive)">Update available: <b>v${esc(r.latest)}</b></span> — you have v${esc(currentVersion)}. Download, then reinstall over the top to keep your data.`;
+      btn.textContent = `Download v${esc(r.latest)}`;
+      downloadUrl = r.downloadUrl;
+      if (r.htmlUrl) { notesBtn.hidden = false; notesBtn.onclick = () => openDownload(r.htmlUrl); }
+    } else if (r.status === 'current') {
+      statusEl.innerHTML = `<span style="color:var(--positive)">You're up to date ✓</span> (v${esc(currentVersion)}).`;
+    } else if (r.status === 'none') {
+      statusEl.textContent = 'No published releases found yet.';
+    } else if (r.status === 'offline') {
+      statusEl.textContent = "Couldn't reach GitHub — check your connection and try again.";
+    } else {
+      statusEl.textContent = `Couldn't check for updates${r.code ? ' (HTTP ' + r.code + ')' : ''}.`;
+    }
+  });
 }
 
 async function openSettingsModal() {

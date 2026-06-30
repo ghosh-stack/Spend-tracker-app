@@ -4,10 +4,19 @@
 // 'spendlens-sms' window event that app.js already handles.
 const Cap = window.Capacitor;
 const Plugin = Cap.registerPlugin('SpendLensCapture');
-const Prefs = Cap.Plugins && Cap.Plugins.Preferences;
+const Prefs = (Cap.Plugins && Cap.Plugins.Preferences) || null;
 
-const pref = async (key, dflt = '') => { try { return (await Prefs.get({ key })).value ?? dflt; } catch { return dflt; } };
-const setPref = async (key, value) => { try { await Prefs.set({ key, value: String(value) }); } catch {} };
+// Prefer the native Preferences plugin; fall back to localStorage so the
+// 'onboarded' flag (which gates the one-time permission requests) is
+// deterministic even if the plugin proxy isn't populated in the WebView.
+const pref = async (key, dflt = '') => {
+  if (Prefs) { try { return (await Prefs.get({ key })).value ?? dflt; } catch {} }
+  try { return localStorage.getItem('cap_' + key) ?? dflt; } catch { return dflt; }
+};
+const setPref = async (key, value) => {
+  if (Prefs) { try { await Prefs.set({ key, value: String(value) }); return; } catch {} }
+  try { localStorage.setItem('cap_' + key, String(value)); } catch {}
+};
 
 // First-run: explain-then-request each capability. Skippable — manual paste
 // always works, so denying a permission never bricks the app.
@@ -27,11 +36,15 @@ const drain = () => Plugin.drainQueue().catch(() => {});
 document.addEventListener('visibilitychange', () => { if (!document.hidden) drain(); });
 window.addEventListener('focus', drain);
 
-// Expose for the in-app capture-status screen.
+// Expose for the in-app capture-status screen and the updater.
 window.SpendLensNative = {
   plugin: Plugin,
   status: () => Plugin.getStatus(),
   openNotificationAccess: () => Plugin.openNotificationAccessSettings(),
+  // GitHub release lookup via native HTTP (keeps the WebView CSP at connect-src
+  // 'self'); returns { code, body } where body is the raw JSON string.
+  checkUpdate: (repo) => Plugin.checkUpdate({ repo }),
+  openExternal: (url) => { Plugin.openExternal({ url }).catch(() => {}); },
   reonboard: async () => { await setPref('onboarded', ''); return onboard(); },
 };
 
