@@ -770,15 +770,16 @@ async function openCaptureModal() {
       try { res = await native.scanSms(); }
       catch (e) { scanBtn.disabled = false; scanBtn.textContent = '⤓ Scan past SMS'; if (scanMsg) scanMsg.textContent = "Couldn't read SMS (allow the permission)."; return; }
       const list = (res && res.messages) || [];
-      if (scanMsg) scanMsg.textContent = `Reading ${list.length} bank text${list.length === 1 ? '' : 's'}…`;
-      let added = 0, dup = 0;
+      let added = 0, dup = 0, i = 0;
       for (const m of list) {
         const r = await ingest.ingestRaw({ source: 'android-sms', sender: m.sender, body: m.body, receivedAt: m.ts });
         if (r === 'parsed' || r === 'merged' || r === 'soft') added++;
         else if (r === 'duplicate' || r === 'duplicate-txn') dup++;
+        i++;
+        if (scanMsg && (i % 5 === 0 || i === list.length)) scanMsg.textContent = `Reading ${i}/${list.length} · added ${added}…`;
       }
       scanBtn.disabled = false; scanBtn.textContent = '⤓ Scan past SMS';
-      if (scanMsg) scanMsg.textContent = `Added ${added}${dup ? ` · ${dup} already recorded` : ''}.`;
+      if (scanMsg) scanMsg.textContent = list.length ? `Added ${added}${dup ? ` · ${dup} already recorded` : ''}.` : 'No bank texts found.';
       toast(`Imported ${added} expense${added === 1 ? '' : 's'} from past SMS`);
       render();
     });

@@ -50,9 +50,14 @@ public class SpendLensCapturePlugin extends Plugin {
 
   private WebView printWebView; // retained so it isn't GC'd before the print job starts
 
-  // A bank alert always names an amount (Rs/INR/₹ + a digit). Used to pull only
-  // financial texts out of the inbox when backfilling, so personal SMS stay unread.
-  private static final Pattern FIN = Pattern.compile("(?:rs\\.?|inr|\\u20B9)\\s*[0-9]", Pattern.CASE_INSENSITIVE);
+  // A bank transaction alert names an AMOUNT (Rs/INR/₹ + digit) AND a transaction
+  // word (debited/credited/UPI/…). Requiring both keeps the backfill fast + on-topic:
+  // marketing "Rs.999 only!" texts are skipped, so only real bank texts hit the parser
+  // (which is the final accuracy gate). Personal SMS stay unread.
+  private static final Pattern AMT = Pattern.compile("(?:rs\\.?|inr|\\u20B9)\\s*[0-9]", Pattern.CASE_INSENSITIVE);
+  private static final Pattern TXN = Pattern.compile(
+    "debit|credit|spent|withdraw|deposit|transfer|receiv|\\bsent\\b|\\bpaid\\b|purchase|txn|trxn|upi|imps|neft|rtgs|a/c|acct|avl bal",
+    Pattern.CASE_INSENSITIVE);
 
   @Override
   public void load() {
@@ -167,7 +172,7 @@ public class SpendLensCapturePlugin extends Plugin {
           while (c.moveToNext() && scanned < 2000) {
             scanned++;
             String body = bi >= 0 ? c.getString(bi) : null;
-            if (body == null || !FIN.matcher(body).find()) continue;
+            if (body == null || !AMT.matcher(body).find() || !TXN.matcher(body).find()) continue;
             JSObject m = new JSObject();
             m.put("sender", ai >= 0 ? c.getString(ai) : "");
             m.put("body", body);
