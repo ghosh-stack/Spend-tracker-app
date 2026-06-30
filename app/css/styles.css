@@ -1,34 +1,49 @@
-/* SpendLens — "Ledger" design system. Ink-navy ground, single jade accent.
-   Tokens, layout, components. No external fonts/CDNs (offline + private). */
+/* SpendLens — "Aurora" design system. Cool near-black ground, electric-indigo
+   signature accent, jade reserved for money-in. Tokens, layout, components.
+   No external fonts/CDNs (offline + private). */
 
 :root {
-  --bg: #0b1014; --surface: #131a21; --surface2: #1a232c; --surface3: #222d38;
-  --border: #28333d; --border-strong: #36444f;
-  --text: #eef3f6; --text-dim: #9fb0bd; --text-mute: #8c9cab;
-  --accent: #34d6a0; --accent-press: #25b487; --accent-soft: rgba(52,214,160,.14); --on-accent: #04130d;
-  --accent-text: #34d6a0; /* accent used as TEXT (passes contrast on dark surfaces) */
-  --positive: #4ad6a0; --negative: #ff6b6b; --warn: #f5b54a; --info: #5ea2ff;
-  --pos-soft: rgba(74,214,160,.12); --neg-soft: rgba(255,107,107,.12); --warn-soft: rgba(245,181,74,.13);
-  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
+  --bg: #0B0C10; --bg-elev: #0E1016; --surface: #14161C; --surface2: #1B1E27; --surface3: #242834;
+  --glass: rgba(22,25,33,.62); --border: #262B36; --border-strong: #39414F; --hairline: rgba(255,255,255,.06);
+  --text: #F2F5FA; --text-dim: #A4AEBE; --text-mute: #7E8898;
+  --accent: #7C6CFF; --accent2: #9D8BFF; --accent-press: #6354F0; --accent-soft: rgba(124,108,255,.16); --on-accent: #0A0B12;
+  --accent-text: #A9B2FF; /* accent used as TEXT (passes contrast on dark surfaces) */
+  --positive: #3FD9A4; --negative: #FF6B74; --warn: #FFC24D; --info: #5FA8FF;
+  --pos-soft: rgba(63,217,164,.14); --neg-soft: rgba(255,107,116,.13); --warn-soft: rgba(255,194,77,.14);
+  --grad-accent: linear-gradient(135deg, #8C7CFF 0%, #6354F0 100%);
+  --grad-brand: linear-gradient(135deg, #7C6CFF 0%, #3FD9A4 130%);
+  --heat0: #1B1E27; --heat1: #3a2230; --heat2: #6e2e3a; --heat3: #b23a44; --heat4: #FF6B74;
+  --elev-1: 0 1px 2px rgba(0,0,0,.45);
+  --shadow: 0 2px 6px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.32); --elev-2: var(--shadow);
+  --elev-3: 0 12px 40px rgba(0,0,0,.5);
+  --hi: inset 0 1px 0 rgba(255,255,255,.05);
   --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: "Segoe UI Variable Display", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", "SF Mono", "Segoe UI Mono", Consolas, monospace;
-  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 22px; --r-pill: 999px;
+  --blur: 14px;
+  --r-sm: 10px; --r-md: 14px; --r-lg: 18px; --r-xl: 24px; --r-pill: 999px;
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
-  --ease: cubic-bezier(.22,.61,.36,1);
+  --ease: cubic-bezier(.22,.61,.36,1); --ease-spring: cubic-bezier(.34,1.56,.64,1);
+  --dur-1: 120ms; --dur-2: 180ms; --dur-3: 260ms;
   --rail-w: 236px;
 }
 
 [data-theme="light"] {
-  --bg: #f4f6f8; --surface: #fff; --surface2: #f0f3f6; --surface3: #e7edf1;
-  --border: #dde4ea; --border-strong: #c6d1d9;
-  --text: #0e1620; --text-dim: #51626f; --text-mute: #54626d;
-  --accent: #11a374; --accent-press: #0c8861; --accent-soft: rgba(17,163,116,.12); --on-accent: #fff;
-  --accent-text: #0a7d58; /* darker accent for TEXT on light surfaces (>=4.5:1) */
-  --positive: #0f9c6e; --negative: #d4393f; --warn: #b9760a; --info: #2f6fe0;
-  --pos-soft: rgba(15,156,110,.10); --neg-soft: rgba(212,57,63,.09); --warn-soft: rgba(185,118,10,.12);
-  --shadow: 0 1px 2px rgba(16,24,40,.06), 0 10px 28px rgba(16,24,40,.08);
+  --bg: #F6F7FB; --bg-elev: #FFFFFF; --surface: #FFFFFF; --surface2: #F1F3F9; --surface3: #E7EBF3;
+  --glass: rgba(255,255,255,.72); --border: #E2E7F0; --border-strong: #C8D0DE; --hairline: rgba(16,19,26,.06);
+  --text: #10131A; --text-dim: #4F5A6B; --text-mute: #6B7686;
+  --accent: #5B4BD6; --accent2: #7C6CFF; --accent-press: #4A3CC2; --accent-soft: rgba(91,75,214,.12); --on-accent: #FFFFFF;
+  --accent-text: #5B4BD6; /* darker accent for TEXT on light surfaces (>=4.5:1) */
+  --positive: #0E9E74; --negative: #C8313A; --warn: #9A6700; --info: #2F6FE0;
+  --pos-soft: rgba(14,158,116,.10); --neg-soft: rgba(200,49,58,.09); --warn-soft: rgba(154,103,0,.12);
+  --grad-accent: linear-gradient(135deg, #6F5DF0 0%, #4A3CC2 100%);
+  --grad-brand: linear-gradient(135deg, #5B4BD6 0%, #0E9E74 130%);
+  --heat0: #E7EBF3; --heat1: #F6CBD0; --heat2: #EE969E; --heat3: #E05A66; --heat4: #C8313A;
+  --elev-1: 0 1px 2px rgba(16,24,40,.05);
+  --shadow: 0 2px 8px rgba(16,24,40,.06), 0 12px 28px rgba(16,24,40,.08); --elev-2: var(--shadow);
+  --elev-3: 0 16px 48px rgba(16,24,40,.12);
+  --hi: inset 0 1px 0 rgba(255,255,255,.7);
   --ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
 }
 
@@ -241,3 +256,19 @@ textarea.input { min-height: 120px; resize: vertical; font-family: var(--font-mo
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+/* ── Aurora refinements ─────────────────────────────────────────────────────
+   Layered on top of the token swap: gradient brand/primary, glass surfaces,
+   hairline + top-highlight cards, tactile press. */
+.brand-mark { background: var(--grad-brand); box-shadow: var(--elev-1); }
+.brand-mark svg { width: 100%; height: 100%; display: block; }
+.btn.primary { background: var(--grad-accent); box-shadow: var(--elev-1); }
+.btn.primary:hover { background: var(--grad-accent); box-shadow: 0 0 0 1px var(--accent), 0 6px 20px var(--accent-soft); }
+.card, .chart-card { border-color: var(--hairline); box-shadow: var(--elev-1), var(--hi); }
+.topbar { background: var(--glass); backdrop-filter: blur(var(--blur)) saturate(140%); }
+.modal { box-shadow: var(--elev-3); }
+.kpi-ico svg, .nav-ico svg { width: 18px; height: 18px; display: block; }
+.kpi-ico svg { width: 16px; height: 16px; }
+.bn-item:active, .bn-fab:active { transform: scale(.94); }
+.bn-fab { background: var(--grad-accent); box-shadow: 0 8px 22px var(--accent-soft), var(--hi); }
+@supports not (backdrop-filter: blur(1px)) { .topbar, .bottomnav { background: var(--surface); } }

@@ -10,6 +10,7 @@ import { donut, bars, sparkline, esc } from './charts.js';
 import { formatMoney, splitMoney, toMinor } from './money.js';
 import { CATEGORIES, categoryById } from './rules.js';
 import { checkForUpdate, openDownload, currentVersion } from './update.js';
+import { icon, brandMark } from './icons.js';
 
 const $ = (sel) => document.querySelector(sel);
 const RANGES = [['week', 'Week'], ['month', 'Month'], ['quarter', 'Quarter'], ['year', 'Year'], ['all', 'All']];
@@ -36,6 +37,28 @@ export function initUI() {
     render();
     if (evt.type === 'transaction' && evt.txn) toast(`${evt.txn.direction === 'credit' ? 'Received' : 'Spent'} ${formatMoney(evt.txn.amount)} · ${categoryById(evt.txn.category).label}`);
   });
+
+  wireIcons();
+}
+
+// Swap the static unicode/emoji chrome glyphs for the cohesive inline-SVG set.
+// Category emoji (in the feed/charts) intentionally stay.
+function wireIcons() {
+  document.querySelectorAll('.brand-mark').forEach((el) => { el.innerHTML = brandMark(el.closest('.lock-card') ? 44 : 30); });
+  const viewIco = { overview: 'dashboard', transactions: 'txns', recurring: 'recurring', insights: 'insights', unparsed: 'review' };
+  const actIco = { import: 'import', sample: 'sparkle', export: 'export', erase: 'trash' };
+  document.querySelectorAll('.rail .nav-item').forEach((b) => {
+    const sp = b.querySelector('.nav-ico'); if (!sp) return;
+    const name = b.dataset.view ? viewIco[b.dataset.view] : actIco[b.dataset.action];
+    if (name) sp.innerHTML = icon(name, 18);
+  });
+  document.querySelectorAll('.bn-item').forEach((b) => {
+    const sp = b.querySelector('span[aria-hidden]'); if (!sp) return;
+    const name = b.dataset.view ? viewIco[b.dataset.view] : (b.dataset.action === 'menu' ? 'more' : null);
+    if (name) sp.innerHTML = icon(name, 22);
+  });
+  const fab = $('.bn-fab'); if (fab) fab.innerHTML = icon('add', 24);
+  const tt = $('#themeToggle'); if (tt) tt.innerHTML = icon('theme', 18);
 }
 
 export async function render() {

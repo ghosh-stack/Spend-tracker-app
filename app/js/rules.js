@@ -10,22 +10,22 @@
 import { CUR, NUM } from './money.js';
 
 export const CATEGORIES = [
-  { id: 'food', label: 'Food & Dining', icon: '🍽️', color: '#FF6B57', kind: 'expense' },
-  { id: 'groceries', label: 'Groceries', icon: '🛒', color: '#4CAF7D', kind: 'expense' },
-  { id: 'transport', label: 'Transport', icon: '🚗', color: '#3B9EFF', kind: 'expense' },
-  { id: 'shopping', label: 'Shopping', icon: '🛍️', color: '#E879F9', kind: 'expense' },
-  { id: 'bills', label: 'Bills & Utilities', icon: '💡', color: '#FFB02E', kind: 'expense' },
-  { id: 'entertainment', label: 'Entertainment', icon: '🎬', color: '#A78BFA', kind: 'expense' },
-  { id: 'health', label: 'Health', icon: '🩺', color: '#FF5C8A', kind: 'expense' },
-  { id: 'travel', label: 'Travel', icon: '✈️', color: '#22C5C5', kind: 'expense' },
-  { id: 'housing', label: 'Rent & Housing', icon: '🏠', color: '#C98A5E', kind: 'expense' },
-  { id: 'investments', label: 'Investments', icon: '📈', color: '#34D399', kind: 'transfer' },
-  { id: 'transfers', label: 'Transfers', icon: '🔁', color: '#94A3B8', kind: 'transfer' },
-  { id: 'remittance', label: 'Remittance', icon: '💸', color: '#6366F1', kind: 'transfer' },
-  { id: 'cash', label: 'Cash/ATM', icon: '🏧', color: '#6B7280', kind: 'expense' },
-  { id: 'income', label: 'Income', icon: '💰', color: '#22C55E', kind: 'income' },
-  { id: 'other', label: 'Other', icon: '📦', color: '#8B96A5', kind: 'expense' },
-  { id: 'uncategorized', label: 'Uncategorized', icon: '❔', color: '#64748B', kind: 'expense' },
+  { id: 'food', label: 'Food & Dining', icon: '🍽️', color: '#FF7A66', kind: 'expense' },
+  { id: 'groceries', label: 'Groceries', icon: '🛒', color: '#57C98A', kind: 'expense' },
+  { id: 'transport', label: 'Transport', icon: '🚗', color: '#4DA3FF', kind: 'expense' },
+  { id: 'shopping', label: 'Shopping', icon: '🛍️', color: '#E879C9', kind: 'expense' },
+  { id: 'bills', label: 'Bills & Utilities', icon: '💡', color: '#FFB23E', kind: 'expense' },
+  { id: 'entertainment', label: 'Entertainment', icon: '🎬', color: '#9D8BFF', kind: 'expense' },
+  { id: 'health', label: 'Health', icon: '🩺', color: '#FF6F9C', kind: 'expense' },
+  { id: 'travel', label: 'Travel', icon: '✈️', color: '#2BC6C6', kind: 'expense' },
+  { id: 'housing', label: 'Rent & Housing', icon: '🏠', color: '#D08A5A', kind: 'expense' },
+  { id: 'investments', label: 'Investments', icon: '📈', color: '#2FB6C4', kind: 'transfer' },
+  { id: 'transfers', label: 'Transfers', icon: '🔁', color: '#8A93A6', kind: 'transfer' },
+  { id: 'remittance', label: 'Remittance', icon: '💸', color: '#6E78FF', kind: 'transfer' },
+  { id: 'cash', label: 'Cash/ATM', icon: '🏧', color: '#707A8A', kind: 'expense' },
+  { id: 'income', label: 'Income', icon: '💰', color: '#36C98F', kind: 'income' },
+  { id: 'other', label: 'Other', icon: '📦', color: '#9AA3B2', kind: 'expense' },
+  { id: 'uncategorized', label: 'Uncategorized', icon: '❔', color: '#5E6878', kind: 'expense' },
 ];
 
 // Reusable amount fragment (built from the shared grammar in money.js).
