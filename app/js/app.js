@@ -79,7 +79,7 @@ async function main() {
   // Inside the Capacitor wrapper, load the native capture glue (onboarding,
   // queue drain). Guarded so the plain browser PWA never references Capacitor.
   if (window.Capacitor?.isNativePlatform?.()) {
-    import('./native-capture.js').catch(() => {});
+    import('./native-capture.js').catch((e) => { try { window.__capErr = String((e && e.message) || e); } catch {} });
   }
 }
 

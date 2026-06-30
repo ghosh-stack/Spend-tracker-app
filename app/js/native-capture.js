@@ -3,7 +3,12 @@
 // so the web build stays dependency-free. Captured messages arrive via the
 // 'spendlens-sms' window event that app.js already handles.
 const Cap = window.Capacitor;
-const Plugin = Cap.registerPlugin('SpendLensCapture');
+// The natively-injected bridge always exposes the Plugins proxy, but registerPlugin
+// (a @capacitor/core helper) can be ABSENT in this no-bundler app — calling it threw
+// and aborted this whole module, so capture never started. Use the proxy, which is
+// the same mechanism the Preferences line below already relies on.
+const Plugin = (Cap.Plugins && Cap.Plugins.SpendLensCapture)
+  || (typeof Cap.registerPlugin === 'function' ? Cap.registerPlugin('SpendLensCapture') : null);
 const Prefs = (Cap.Plugins && Cap.Plugins.Preferences) || null;
 
 // Prefer the native Preferences plugin; fall back to localStorage so the
