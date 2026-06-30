@@ -99,7 +99,8 @@ export async function render() {
       || (t.notes || '').toLowerCase().includes(q)
       || (t.amount / 100).toFixed(2).includes(q));
   }
-  renderFeed(feed, acctMap, state.view === 'overview' ? 25 : 500);
+  const nudge = state.view === 'overview' ? buildNudge(txns) : '';
+  renderFeed(feed, acctMap, state.view === 'overview' ? 25 : 500, txns.length > 0, nudge);
 }
 
 // ── regions ───────────────────────────────────────────────────────────────
@@ -140,7 +141,7 @@ function renderKPIs(s, buckets, prevSpent, prevIncome) {
   const amts = buckets.map((b) => b.amount);
   let cum = 0; const cumAmts = amts.map((a) => (cum += a));
   const top = s.topCategory;
-  const html = [
+  const cards = [
     kpiCard({ icon: '💸', label: 'Spent', valueMinor: s.spent, delta: deltaPill(s.spent, prevSpent, true), spark: sparkline(amts.length > 1 ? amts : [0, 0], { stroke: 'var(--accent)' }) }),
     kpiCard({ icon: '💰', label: 'Income', valueMinor: s.income, delta: deltaPill(s.income, prevIncome, false), foot: `<span class="hint mono">net ${formatMoney(s.net)}</span>` }),
     top
@@ -149,8 +150,9 @@ function renderKPIs(s, buckets, prevSpent, prevIncome) {
          <div class="kpi-foot"><span class="pill"><span class="dot" style="background:${top.color}"></span><span class="mono">${formatMoney(top.amount)}</span></span><span class="hint mono">${top.pct.toFixed(0)}% of spend</span></div></div>`
       : kpiCard({ icon: '📊', label: 'Top category', valueMinor: 0, foot: '<span class="hint">No spend yet</span>' }),
     kpiCard({ icon: s.net >= 0 ? '🟢' : '🔴', label: 'Net flow', valueMinor: s.net, foot: `<span class="hint mono">${s.net >= 0 ? 'saved' : 'overspent'}</span>`, spark: sparkline(cumAmts.length > 1 ? cumAmts : [0, 0], { area: true, stroke: 'var(--info)' }) }),
-  ].join('');
-  $('#kpis').innerHTML = html;
+  ];
+  // Hero = the spend number; the rest become a strip (horizontal scroll on phones).
+  $('#kpis').innerHTML = `<div class="kpi-hero">${cards[0]}</div><div class="kpi-strip">${cards[1]}${cards[2]}${cards[3]}</div>`;
 }
 
 const titleCase = (s) => String(s).replace(/\b\w/g, (c) => c.toUpperCase());
@@ -262,7 +264,7 @@ function feedRow(t, acctMap) {
     </div>`;
 }
 
-function renderFeed(txns, acctMap, limit) {
+function renderFeed(txns, acctMap, limit, hasAny = true, nudge = '') {
   const isTxnView = state.view === 'transactions';
   const search = isTxnView
     ? `<input class="input" id="txnSearch" placeholder="Search merchant, amount or note…" value="${esc(state.search)}" autocomplete="off" style="margin-bottom:12px">`
@@ -270,13 +272,13 @@ function renderFeed(txns, acctMap, limit) {
   const head = `<div class="feed-head"><h2>${isTxnView ? 'All transactions' : 'Recent activity'}</h2>
     <span class="hint mono">${txns.length} txn${txns.length === 1 ? '' : 's'}</span></div>`;
   if (!txns.length) {
-    const body = state.search ? '<p class="hint" style="text-align:center;padding:24px 0">No matches.</p>' : emptyState();
-    $('#feedCard').innerHTML = `<div class="card">${head}${search}${body}</div>`;
+    const body = state.search ? '<p class="hint" style="text-align:center;padding:24px 0">No matches.</p>' : emptyState(hasAny);
+    $('#feedCard').innerHTML = `<div class="card">${nudge}${head}${search}${body}</div>`;
     refocusSearch();
     return;
   }
   const rows = txns.slice(0, limit).map((t) => feedRow(t, acctMap)).join('');
-  $('#feedCard').innerHTML = `<div class="card">${head}${search}<div class="feed">${rows}</div>
+  $('#feedCard').innerHTML = `<div class="card">${nudge}${head}${search}<div class="feed">${rows}</div>
     ${txns.length > limit ? `<p class="hint" style="text-align:center;margin-top:12px">Showing ${limit} of ${txns.length}.</p>` : ''}</div>`;
   _flashId = null;
   refocusSearch();
@@ -424,10 +426,31 @@ async function renderUnparsed() {
     <div class="feed">${body}</div></div>`;
 }
 
-function emptyState(title = 'No spend yet this month', msg = 'Paste a bank SMS or email, add an expense, or load the demo data to see your dashboard come alive.') {
-  return `<div class="empty"><div class="glyph">✦</div><h3>${esc(title)}</h3><p>${esc(msg)}</p>
-    <button class="btn primary" data-action="add">+ Add expense</button>
-    <button class="btn ghost" data-action="sample">Load demo data</button></div>`;
+function emptyState(hasAny) {
+  // Empty filter ≠ brand-new user: a first-run gets a focused welcome, not zero KPIs.
+  if (hasAny) {
+    return `<div class="empty"><div class="glyph">🔍</div><h3>Nothing in this period</h3>
+      <p>No transactions match the current filters.</p>
+      <button class="btn ghost" data-action="reset">Clear filters</button></div>`;
+  }
+  return `<div class="empty"><div class="glyph" style="background:transparent">${brandMark(48)}</div>
+    <h3>Track every rupee, privately</h3>
+    <p>SpendLens turns your bank's SMS &amp; email alerts into a live dashboard — parsed on-device, nothing leaves your phone.</p>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+      <button class="btn primary" data-action="sample">Load demo data</button>
+      <button class="btn ghost" data-action="paste">Paste a bank alert</button></div></div>`;
+}
+
+// One contextual nudge for the overview: the nearest upcoming recurring bill.
+function buildNudge(txns) {
+  const r = detectRecurring(txns).find((x) => x.status === 'active' && x.daysUntil >= 0 && x.daysUntil <= 3);
+  if (!r) return '';
+  const cat = categoryById(r.category);
+  return `<div class="nudge" data-view="recurring" role="button" tabindex="0">
+    <div class="tile" style="background:${cat.color}22;color:${cat.color}">🔁</div>
+    <div class="n-main"><b>${esc(r.displayName)} · ${esc(formatMoney(r.amountMinor))}</b>
+      <div class="hint">${esc(r.kind)} due ${esc(fmtNext(r))}</div></div>
+    <span class="n-go">${icon('arrow', 16)}</span></div>`;
 }
 
 function updateContext(nAccounts, s) {
@@ -458,8 +481,9 @@ function onChange(e) {
   }
 }
 
+let _searchTimer;
 function onInput(e) {
-  if (e.target.id === 'txnSearch') { state.search = e.target.value; render(); }
+  if (e.target.id === 'txnSearch') { state.search = e.target.value; clearTimeout(_searchTimer); _searchTimer = setTimeout(render, 130); }
 }
 
 // Arrow-key navigation for the date-range radiogroup (single tab stop).

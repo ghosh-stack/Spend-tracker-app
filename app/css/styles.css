@@ -117,7 +117,10 @@ select.input { appearance: none; background: var(--surface); border: 1px solid v
 .spacer { flex: 1; }
 
 /* ── KPI cards ──────────────────────────────────────────────────────────── */
-.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s4); }
+.kpis { display: flex; flex-direction: column; gap: var(--s4); }
+.kpi-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s4); }
+.kpi-hero .kpi { min-height: auto; }
+.kpi-hero .kpi-val { font-size: 2.7rem; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--s4); }
 .kpi { display: flex; flex-direction: column; gap: var(--s2); min-height: 132px; }
 .kpi-head { display: flex; align-items: center; gap: var(--s2); color: var(--text-dim); font-size: 13px; }
@@ -246,7 +249,7 @@ textarea.input { min-height: 120px; resize: vertical; font-family: var(--font-mo
   .charts { grid-template-columns: 1fr; }
 }
 @media (max-width: 920px) {
-  .kpis { grid-template-columns: 1fr 1fr; }
+  .kpi-strip { grid-template-columns: 1fr 1fr 1fr; }
 }
 @media (max-width: 760px) {
   :root { --rail-w: 0px; }
@@ -261,10 +264,22 @@ textarea.input { min-height: 120px; resize: vertical; font-family: var(--font-mo
   .bn-item b { font-weight: 500; font-size: 10px; }
   .bn-item[aria-current="page"] { color: var(--accent-text); }
   .bn-fab { width: 52px; height: 52px; margin-top: -22px; border-radius: 50%; background: var(--accent); color: var(--on-accent); border: 0; font-size: 26px; box-shadow: var(--shadow); }
+  /* Lead with the spend hero + feed; charts drop below the fold. */
+  #charts { order: 1; }
+  /* Modals become bottom sheets. */
+  dialog.modal { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: var(--r-xl) var(--r-xl) 0 0; }
 }
 @media (max-width: 520px) {
-  .kpis { grid-template-columns: 1fr; }
+  .kpi-strip { display: flex; overflow-x: auto; gap: 12px; scroll-snap-type: x mandatory; padding-bottom: 4px; }
+  .kpi-strip .kpi { min-width: 76%; scroll-snap-align: start; }
+  .kpi-hero .kpi-val { font-size: 2.9rem; }
 }
+/* Dashboard nudge banner */
+.nudge { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: var(--s3); border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface2); cursor: pointer; }
+.nudge:hover { background: var(--surface3); }
+.nudge .tile { width: 34px; height: 34px; font-size: 16px; }
+.nudge .n-main { min-width: 0; flex: 1; }
+.nudge .n-go { color: var(--text-mute); display: flex; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }

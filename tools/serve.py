@@ -7,7 +7,7 @@
 import http.server, socketserver, sys, os
 from http.server import ThreadingHTTPServer
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+PORT = int(os.environ.get('PORT') or (sys.argv[1] if len(sys.argv) > 1 else 8765))
 APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'app'))
 
 
