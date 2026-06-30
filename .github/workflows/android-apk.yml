@@ -53,8 +53,18 @@ jobs:
       - run: npx cap sync android
       - run: node scripts/apply-native.mjs
 
-      # Debug-signed APK — Gradle auto-generates the debug keystore, so no secrets
-      # are needed. Installs via "unknown sources"; not a Play-eligible artifact.
+      # Use a committed, STABLE debug keystore so every build is signed with the SAME
+      # key. Otherwise each CI run auto-generates a random debug key, and a new APK
+      # won't install over the previous one ("App not installed" / signature mismatch).
+      # These are Android's universal debug creds (androiddebugkey / "android") — not
+      # secret by design — so committing the keystore is safe for a sideloaded app.
+      - name: Use the stable debug keystore
+        run: |
+          mkdir -p ~/.android
+          cp keystore/debug.keystore ~/.android/debug.keystore
+
+      # Debug-signed APK (signed with the stable keystore above). Installs via
+      # "unknown sources"; not a Play-eligible artifact.
       - name: Build debug APK
         working-directory: android-native/android
         run: |
