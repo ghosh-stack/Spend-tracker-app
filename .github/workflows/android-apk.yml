@@ -1,15 +1,15 @@
 name: Android APK (sideload)
 
-# Build an installable APK for sideloading. Tag a release (v*) or run manually.
-# The sandbox can't compile/sign — THIS workflow is the build step; download the
-# artifact / release asset and sideload it to your phone.
+# Build an installable APK for sideloading. Run it manually (Actions tab →
+# "Run workflow") or by pushing a v* tag. The sandbox can't compile/sign — THIS
+# workflow is the build; download the artifact and sideload it to your phone.
 on:
   push:
     tags: ['v*']
   workflow_dispatch: {}
 
 permissions:
-  contents: write   # attach the APK to a GitHub Release on tag builds
+  contents: write   # to attach the APK to a Release on tag builds
 
 jobs:
   build-apk:
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'        # AGP 8 / Capacitor 6 need JDK 17
+          java-version: '17'          # AGP 8 / Capacitor 6 need JDK 17
 
       - uses: actions/setup-node@v4
         with:
@@ -31,8 +31,8 @@ jobs:
 
       - uses: android-actions/setup-android@v3   # cmdline-tools + license acceptance
 
-      # Install wrapper deps, generate the android/ project, copy the untouched
-      # PWA from ../app, inject the native capture code, patch the manifest.
+      # Install wrapper deps, generate the android/ project, copy the PWA from
+      # ../app, inject the native capture code, and patch the manifest.
       - run: npm install
       - run: npx cap add android
       - run: npx cap sync android
@@ -40,38 +40,19 @@ jobs:
 
       # Debug-signed APK — Gradle auto-generates the debug keystore, so no secrets
       # are needed. Installs via "unknown sources"; not a Play-eligible artifact.
-      - run: chmod +x android/gradlew
-      - working-directory: android-native/android
-        run: ./gradlew assembleDebug
+      - name: Build debug APK
+        working-directory: android-native/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
 
       - uses: actions/upload-artifact@v4
         with:
           name: spendlens-debug-apk
           path: android-native/android/app/build/outputs/apk/debug/app-debug.apk
 
-      # Optional release (self-)signing — only if you add these repo secrets.
-      # Skipped automatically when the keystore secret is absent.
-      - name: Decode release keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
-      - name: Build signed release APK
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        working-directory: android-native/android
-        env:
-          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: >
-          ./gradlew assembleRelease
-          -Pandroid.injected.signing.store.file=app/release.keystore
-          -Pandroid.injected.signing.store.password="$KS_PASS"
-          -Pandroid.injected.signing.key.alias="$KEY_ALIAS"
-          -Pandroid.injected.signing.key.password="$KEY_PASS"
-
-      - name: Publish to Release
+      - name: Attach APK to the Release (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            android-native/android/app/build/outputs/apk/debug/app-debug.apk
-            android-native/android/app/build/outputs/apk/release/app-release.apk
+          files: android-native/android/app/build/outputs/apk/debug/app-debug.apk
