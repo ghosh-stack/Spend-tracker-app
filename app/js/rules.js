@@ -21,6 +21,7 @@ export const CATEGORIES = [
   { id: 'housing', label: 'Rent & Housing', icon: '🏠', color: '#C98A5E', kind: 'expense' },
   { id: 'investments', label: 'Investments', icon: '📈', color: '#34D399', kind: 'transfer' },
   { id: 'transfers', label: 'Transfers', icon: '🔁', color: '#94A3B8', kind: 'transfer' },
+  { id: 'remittance', label: 'Remittance', icon: '💸', color: '#6366F1', kind: 'transfer' },
   { id: 'cash', label: 'Cash/ATM', icon: '🏧', color: '#6B7280', kind: 'expense' },
   { id: 'income', label: 'Income', icon: '💰', color: '#22C55E', kind: 'income' },
   { id: 'other', label: 'Other', icon: '📦', color: '#8B96A5', kind: 'expense' },
@@ -241,6 +242,15 @@ export const CATEGORIZE_RULES = [
   { match: 'cash wdl', categoryId: 'cash' },
   { match: 'cash withdrawal', categoryId: 'cash' },
   { match: 'nfs/cash', categoryId: 'cash' },
+  // remittance (money-transfer services — precede generic transfer words)
+  { match: 'remittance', categoryId: 'remittance' },
+  { match: 'remitly', categoryId: 'remittance' },
+  { match: 'western union', categoryId: 'remittance' },
+  { match: 'moneygram', categoryId: 'remittance' },
+  { match: 'instarem', categoryId: 'remittance' },
+  { match: 'xoom', categoryId: 'remittance' },
+  { match: 'wise', categoryId: 'remittance' },
+  { match: 'remit', categoryId: 'remittance' },
   // transfers (precede income 'credit' words)
   { match: 'credit card payment', categoryId: 'transfers' },
   { match: 'cred club', categoryId: 'transfers' },
