@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
@@ -87,10 +88,34 @@ public class SpendLensCapturePlugin extends Plugin {
   @PluginMethod
   public void getStatus(PluginCall call) {
     JSObject r = new JSObject();
-    r.put("sms", getPermissionState("sms") == PermissionState.GRANTED);
+    // Tri-state so the UI can tell a normal "denied" (re-askable inline) from the
+    // restricted-settings "blocked" (must go via App info → Allow restricted settings).
+    String smsState;
+    if (getPermissionState("sms") == PermissionState.GRANTED) smsState = "granted";
+    else if (getActivity() != null && getActivity().shouldShowRequestPermissionRationale(Manifest.permission.RECEIVE_SMS)) smsState = "denied";
+    else smsState = "blocked";
+    r.put("sms", smsState);
     r.put("notificationAccess", NotificationManagerCompat.getEnabledListenerPackages(getContext())
       .contains(getContext().getPackageName()));
+    r.put("sdk", Build.VERSION.SDK_INT);
+    r.put("manufacturer", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.toLowerCase());
     call.resolve(r);
+  }
+
+  // Deep-link to THIS app's "App info" screen, where the user enables
+  // "Allow restricted settings" to unblock SMS + notification access on a
+  // sideloaded build (Android 13+). No manifest change needed (a Settings intent).
+  @PluginMethod
+  public void openAppInfo(PluginCall call) {
+    try {
+      Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+      i.setData(Uri.parse("package:" + getContext().getPackageName()));
+      i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      getContext().startActivity(i);
+      call.resolve();
+    } catch (Exception e) {
+      call.reject("cannot open app info", e);
+    }
   }
 
   @PluginMethod

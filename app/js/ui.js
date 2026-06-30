@@ -488,6 +488,7 @@ async function onClick(e) {
     case 'settings': openSettingsModal(); break;
     case 'updates': openUpdatesModal(); break;
     case 'report': openReportModal(); break;
+    case 'capture': openCaptureModal(); break;
     case 'breakdown': if (state.breakdown !== t.dataset.mode) { state.breakdown = t.dataset.mode; render(); } break;
     case 'edit': openEditModal(id); break;
     case 'filtertxn': state.view = 'transactions'; state.category = t.dataset.cat; state.search = ''; render(); break;
@@ -614,6 +615,7 @@ function openMenuModal() {
     <div class="modal-body" style="gap:8px">
       <button class="btn" data-view="insights">📊 Insights & budgets</button>
       <button class="btn" data-view="unparsed">⚠ Needs review</button>
+      <button class="btn" data-action="capture">📡 Capture status</button>
       <button class="btn" data-action="settings">🔒 Privacy & alerts</button>
       <button class="btn" data-action="paste">Paste a bank alert</button>
       <button class="btn" data-action="import">Import file (.json / .csv)</button>
@@ -623,6 +625,56 @@ function openMenuModal() {
       <button class="btn" data-action="updates">⟳ Check for updates</button>
       <button class="btn" data-action="erase" style="color:var(--negative)">Erase all data</button>
     </div>`);
+}
+
+// Capture status: per-channel state with a guided, OEM-aware unblock for the
+// Android restricted-settings gate. Only the native wrapper can capture; the web
+// build shows the manual fallbacks.
+function capRow(ico, color, name, sub, pillCls, pillTxt, action) {
+  return `<div class="cap-row"><div class="cap-ic" style="background:${color}22;color:${color}">${ico}</div>
+    <div class="cap-main"><div class="cap-name">${name}</div><div class="cap-sub">${sub}</div>${action || ''}</div>
+    <span class="pill ${pillCls}">${pillTxt}</span></div>`;
+}
+async function openCaptureModal() {
+  const native = window.SpendLensNative;
+  openModal(`<div class="modal-head"><h3>Capture status</h3><button class="btn ghost icon" data-action="close" aria-label="Close">✕</button></div>
+    <div class="modal-body" id="capBody"><p class="hint">Checking…</p></div>`);
+  const body = $('#capBody');
+  if (!native) {
+    body.innerHTML = `<div class="cap-note">Automatic SMS &amp; email capture runs in the <b>SpendLens Android app</b>. In this web version, add spends with <b>Paste a bank alert</b> or <b>Import</b>.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-action="paste">Paste a bank alert</button><button class="btn" data-action="import">Import file</button></div>`;
+    return;
+  }
+  const render = async () => {
+    let st; try { st = await native.status(); } catch { st = {}; }
+    const oem = st.manufacturer || '';
+    const smsRow = st.sms === 'granted'
+      ? capRow(icon('txns', 20), 'var(--positive)', 'Bank SMS', 'Reading incoming bank texts', 'ok', 'On', '')
+      : st.sms === 'denied'
+        ? capRow(icon('txns', 20), 'var(--warn)', 'Bank SMS', 'Permission not granted yet', 'warnp', 'Off', '<button class="btn sm primary cap-act" id="capSms">Grant SMS</button>')
+        : capRow(icon('txns', 20), 'var(--negative)', 'Bank SMS', 'Blocked by Android for sideloaded apps', 'bad', 'Blocked', '<button class="btn sm primary cap-act" id="capUnblock">Unblock in Settings</button>');
+    const naRow = st.notificationAccess
+      ? capRow(icon('bell', 20), 'var(--positive)', 'Email &amp; bank-app alerts', 'Notification access on', 'ok', 'On', '')
+      : capRow(icon('bell', 20), 'var(--warn)', 'Email &amp; bank-app alerts', 'Reads alert notifications — no inbox login', 'warnp', 'Off', '<button class="btn sm cap-act" id="capNa">Open notification access</button>');
+    const needUnblock = st.sms === 'blocked' || !st.notificationAccess;
+    const steps = needUnblock ? `<div class="cap-steps"><b>Unlock in 3 taps</b>
+      <ol><li>Tap a button above, then <b>Open App info</b>.</li>
+      <li>Tap <b>⋮ → Allow restricted settings</b>${oem.includes('samsung') ? ' (Samsung: the menu says <b>More</b>)' : ''}.</li>
+      <li>Come back, then turn on SMS &amp; Notification access.</li></ol>
+      ${oem.includes('samsung') ? '<p class="cap-oem">Samsung: also turn OFF Settings → Security &amp; privacy → <b>Auto Blocker</b>.</p>' : ''}
+      ${oem.includes('xiaomi') ? '<p class="cap-oem">Xiaomi: enable <b>Autostart</b> for SpendLens and set Battery saver to <b>No restrictions</b>.</p>' : ''}
+      <button class="btn sm" id="capAppInfo">Open App info</button></div>` : '';
+    body.innerHTML = smsRow + naRow + steps + '<div class="cap-note ok">Manual <b>Paste</b> &amp; <b>Import</b> always work, whatever the permissions.</div>';
+    const wire = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', async () => { try { await fn(); } catch {} setTimeout(render, 500); }); };
+    wire('capSms', () => native.requestSms());
+    wire('capUnblock', () => native.openAppInfo());
+    wire('capNa', () => native.openNotificationAccess());
+    wire('capAppInfo', () => native.openAppInfo());
+  };
+  await render();
+  const onVis = () => { if (!document.hidden && $('#capBody')) render(); }; // re-check after returning from Settings
+  document.addEventListener('visibilitychange', onVis);
+  $('#modal').addEventListener('close', () => document.removeEventListener('visibilitychange', onVis), { once: true });
 }
 
 // PDF report export: pick a period, build the report on-device, open print → Save as PDF.
