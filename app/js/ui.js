@@ -6,7 +6,7 @@ import * as ingest from './ingest.js';
 import * as lock from './lock.js';
 import * as notify from './notify.js';
 import { applyFilter, summarize, series, relativeTime, rangeStart, insights, detectRecurring, DAY } from './queries.js';
-import { donut, bars, sparkline, esc } from './charts.js';
+import { donut, bars, sparkline, sankey, calHeatmap, treemap, spendPace, esc } from './charts.js';
 import { formatMoney, splitMoney, toMinor } from './money.js';
 import { CATEGORIES, categoryById } from './rules.js';
 import { checkForUpdate, openDownload, currentVersion } from './update.js';
@@ -15,7 +15,7 @@ import { icon, brandMark } from './icons.js';
 const $ = (sel) => document.querySelector(sel);
 const RANGES = [['week', 'Week'], ['month', 'Month'], ['quarter', 'Quarter'], ['year', 'Year'], ['all', 'All']];
 
-const state = { view: 'overview', range: 'month', category: null, accountId: null, search: '' };
+const state = { view: 'overview', range: 'month', category: null, accountId: null, search: '', breakdown: 'treemap' };
 let _flashId = null; // id of a just-arrived txn, gets the slide-in animation
 
 // previous-period sums (for the delta pills) over the full transaction set
@@ -89,7 +89,7 @@ export async function render() {
   renderFilters(accounts);
   if (showCharts) {
     renderKPIs(summary, buckets, prevSpent, prevIncome);
-    renderCharts(summary, buckets);
+    renderCharts(summary, buckets, filtered, txns);
   }
   let feed = filtered;
   if (state.view === 'transactions' && state.search.trim()) {
@@ -152,24 +152,83 @@ function renderKPIs(s, buckets, prevSpent, prevIncome) {
   $('#kpis').innerHTML = html;
 }
 
-function renderCharts(s, buckets) {
-  const legend = s.categories.slice(0, 7).map((c) => `
+const titleCase = (s) => String(s).replace(/\b\w/g, (c) => c.toUpperCase());
+
+// Build the Sankey flow model from a summary + the period's transactions.
+function buildFlow(s, txns) {
+  const incomeTxns = txns.filter((t) => !t.excluded && t.direction === 'credit' && categoryById(t.category).kind === 'income');
+  const map = new Map();
+  for (const t of incomeTxns) {
+    const k = ((t.merchant || 'Income').split('@')[0] || 'Income').trim();
+    map.set(k, (map.get(k) || 0) + t.amount);
+  }
+  let arr = [...map.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount);
+  const top = arr.slice(0, 3);
+  const rest = arr.slice(3).reduce((x, o) => x + o.amount, 0);
+  if (rest > 0) top.push({ label: 'Other', amount: rest });
+  const shades = ['var(--positive)', '#36C98F', '#2BC6C6', '#57C98A'];
+  const sources = top.map((o, i) => ({ label: titleCase(o.label).slice(0, 14), amount: o.amount, color: shades[i % shades.length] }));
+  const cats = s.categories.slice(0, 6).map((c) => ({ id: c.id, label: c.label, icon: c.icon, amount: c.amount, color: c.color }));
+  const restCat = s.categories.slice(6).reduce((x, c) => x + c.amount, 0);
+  if (restCat > 0) cats.push({ id: 'other', label: 'Other', icon: '•', amount: restCat, color: 'var(--text-mute)' });
+  const saved = Math.max(0, s.net);
+  return { income: s.income, spent: s.spent, saved, savingsRate: s.income > 0 ? Math.round((saved / s.income) * 100) : null, sources, cats };
+}
+
+// Current calendar month's daily spend + cumulative (for heatmap & pace).
+function monthDaily(txns) {
+  const now = new Date(), y = now.getFullYear(), mo = now.getMonth();
+  const daysInMonth = new Date(y, mo + 1, 0).getDate();
+  const dayOfMonth = now.getDate();
+  const firstDow = (new Date(y, mo, 1).getDay() + 6) % 7; // 0 = Monday
+  const daily = new Array(daysInMonth).fill(0);
+  for (const t of txns) {
+    if (t.excluded || t.direction !== 'debit' || categoryById(t.category).kind !== 'expense') continue;
+    const d = new Date(t.ts);
+    if (d.getFullYear() === y && d.getMonth() === mo) daily[d.getDate() - 1] += t.amount;
+  }
+  const cum = []; let acc = 0;
+  for (let i = 0; i < dayOfMonth; i++) { acc += daily[i]; cum.push(acc); }
+  return { daily, cum, dayOfMonth, daysInMonth, firstDow, monthLabel: now.toLocaleString('en-IN', { month: 'long' }) };
+}
+
+function legendHtml(s) {
+  return s.categories.slice(0, 7).map((c) => `
     <div class="legend-row"><span class="dot" style="background:${c.color}"></span>
       <span class="lg-label">${c.icon} ${esc(c.label)}</span>
       <span class="lg-amt">${formatMoney(c.amount)}</span>
       <span class="lg-pct">${c.pct.toFixed(0)}%</span></div>`).join('') || '<p class="hint">No spending in this period.</p>';
+}
+
+function renderCharts(s, buckets, filtered, allTxns) {
+  const ins = insights(allTxns);
+  const flow = buildFlow(s, filtered);
+  const mh = monthDaily(allTxns);
+  const breakdownBody = state.breakdown === 'donut'
+    ? `<div class="donut-wrap">${donut(s.categories, formatMoney(s.spent).replace(/\.\d+$/, ''), 'spent')}<div class="legend">${legendHtml(s)}</div></div>`
+    : treemap(s.categories.slice(0, 8).map((c) => ({ id: c.id, label: c.label, icon: c.icon, amount: c.amount, color: c.color })), 420, 200);
+  const trend = state.range === 'month'
+    ? `<div class="chart-card chart-wide"><div class="chart-title"><span>Spending pace</span><span class="hint mono">${esc(mh.monthLabel)}</span></div>${spendPace({ cum: mh.cum, dayOfMonth: mh.dayOfMonth, daysInMonth: mh.daysInMonth, baseline: ins.lastSpent, projected: ins.projected })}</div>`
+    : `<div class="chart-card chart-wide"><div class="chart-title"><span>Spending over time</span><span class="hint mono">${state.range}</span></div>${bars(buckets)}</div>`;
   $('#charts').innerHTML = `
-    <div class="chart-card">
-      <div class="chart-title"><span>Spending by category</span></div>
-      <div class="donut-wrap">
-        ${donut(s.categories, formatMoney(s.spent).replace(/\.\d+$/, ''), 'spent')}
-        <div class="legend">${legend}</div>
-      </div>
+    <div class="chart-card chart-hero">
+      <div class="chart-title"><span>Money flow</span><span class="hint mono">${flow.savingsRate != null ? flow.savingsRate + '% saved' : 'income → spend'}</span></div>
+      ${sankey(flow, 640, 340)}
     </div>
     <div class="chart-card">
-      <div class="chart-title"><span>Spending over time</span><span class="hint mono">${state.range}</span></div>
-      ${bars(buckets)}
-    </div>`;
+      <div class="chart-title"><span>Breakdown</span>
+        <span class="segment sm" role="group" aria-label="Breakdown style">
+          <button data-action="breakdown" data-mode="treemap" aria-checked="${state.breakdown === 'treemap'}">Treemap</button>
+          <button data-action="breakdown" data-mode="donut" aria-checked="${state.breakdown === 'donut'}">Donut</button>
+        </span>
+      </div>
+      ${breakdownBody}
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span>Spending calendar</span><span class="hint mono">${esc(mh.monthLabel)}</span></div>
+      <div class="heat-wrap">${calHeatmap(mh.daily, { firstDow: mh.firstDow, todayDom: mh.dayOfMonth })}</div>
+    </div>
+    ${trend}`;
 }
 
 function feedRow(t, acctMap) {
@@ -427,6 +486,7 @@ async function onClick(e) {
     case 'menu': openMenuModal(); break;
     case 'settings': openSettingsModal(); break;
     case 'updates': openUpdatesModal(); break;
+    case 'breakdown': if (state.breakdown !== t.dataset.mode) { state.breakdown = t.dataset.mode; render(); } break;
     case 'edit': openEditModal(id); break;
     case 'filtertxn': state.view = 'transactions'; state.category = t.dataset.cat; state.search = ''; render(); break;
     case 'addfrom': { const m = await db.get('raw_messages', id); openAddModal(m?.body); break; }
