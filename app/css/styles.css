@@ -185,6 +185,12 @@ select.input { appearance: none; background: var(--surface); border: 1px solid v
 .row:hover .row-actions { opacity: 1; }
 .mini { background: var(--surface3); border: 0; border-radius: var(--r-sm); padding: 3px 7px; font-size: 12px; color: var(--text-dim); }
 .mini:hover { color: var(--text); }
+/* Touch devices have no hover: keep row actions visible and tap-sized, else edit
+   /delete are unreachable on a phone. */
+@media (hover: none), (pointer: coarse) {
+  .row-actions { opacity: 1; }
+  .mini { min-width: 40px; min-height: 40px; padding: 0; display: inline-grid; place-items: center; font-size: 15px; }
+}
 
 /* ── States ─────────────────────────────────────────────────────────────── */
 .empty { text-align: center; padding: var(--s7) var(--s4); border: 1px dashed var(--border-strong); border-radius: var(--r-lg); }
