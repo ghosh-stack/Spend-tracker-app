@@ -38,19 +38,29 @@ async function main() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) lock.maybeRelock(); });
   window.addEventListener('focus', () => lock.maybeRelock());
 
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-    // If the page was already controlled at load, a later controllerchange means
-    // a freshly deployed SW just took over — reload once so the new shell (e.g.
-    // updated categories) runs instead of the stale in-memory modules. Guarding
-    // on an existing controller skips the first-install case (no reload loop).
-    if (navigator.serviceWorker.controller) {
-      let reloading = false;
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (reloading) return;
-        reloading = true;
-        location.reload();
-      });
+  // Service worker: web (PWA) ONLY. Inside the Capacitor app the assets are already
+  // bundled, and an active SW can shadow Capacitor's native bridge — leaving
+  // window.Capacitor undefined, so SMS/notification capture silently never starts.
+  // Capacitor serves from https://localhost, so treat localhost as native: keep the
+  // SW out and unregister any that a previous build left behind (self-heals installs).
+  const inCapacitor = location.hostname === 'localhost'
+    || !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  if ('serviceWorker' in navigator) {
+    if (inCapacitor) {
+      navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
+    } else if (location.protocol.startsWith('http')) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+      // If already controlled at load, a later controllerchange means a freshly
+      // deployed SW took over — reload once so the new shell runs (no loop: the
+      // guard skips first install).
+      if (navigator.serviceWorker.controller) {
+        let reloading = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (reloading) return;
+          reloading = true;
+          location.reload();
+        });
+      }
     }
   }
 

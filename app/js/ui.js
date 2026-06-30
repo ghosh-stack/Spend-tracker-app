@@ -729,8 +729,10 @@ async function openCaptureModal() {
     <div class="modal-body" id="capBody"><p class="hint">Checking…</p></div>`);
   const body = $('#capBody');
   if (!native) {
+    const diag = `host=${esc(location.hostname)} · engine=${typeof window.Capacitor === 'object' ? 'present' : 'MISSING'} · native=${String(!!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()))}`;
     body.innerHTML = `<div class="cap-note">Automatic SMS &amp; email capture runs in the <b>SpendLens Android app</b>. In this web version, add spends with <b>Paste a bank alert</b> or <b>Import</b>.</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-action="paste">Paste a bank alert</button><button class="btn" data-action="import">Import file</button></div>`;
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-action="paste">Paste a bank alert</button><button class="btn" data-action="import">Import file</button></div>
+      <p class="hint mono" style="margin-top:8px;opacity:.7">diagnostics — ${diag}</p>`;
     return;
   }
   const render = async () => {
