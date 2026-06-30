@@ -111,6 +111,14 @@ public class SpendLensCapturePlugin extends Plugin {
     else if (Build.VERSION.SDK_INT >= 23 && getActivity() != null && getActivity().shouldShowRequestPermissionRationale(Manifest.permission.RECEIVE_SMS)) smsState = "denied";
     else smsState = "blocked";
     r.put("sms", smsState);
+    // READ_SMS is a SEPARATE grant from RECEIVE_SMS: incoming-SMS capture can be On
+    // while past-SMS backfill is still denied/blocked. Report it as its own tri-state
+    // so the UI can show + unblock it independently (it was previously invisible).
+    String readSmsState;
+    if (getPermissionState("readSms") == PermissionState.GRANTED) readSmsState = "granted";
+    else if (Build.VERSION.SDK_INT >= 23 && getActivity() != null && getActivity().shouldShowRequestPermissionRationale(Manifest.permission.READ_SMS)) readSmsState = "denied";
+    else readSmsState = "blocked";
+    r.put("readSms", readSmsState);
     r.put("notificationAccess", NotificationManagerCompat.getEnabledListenerPackages(getContext())
       .contains(getContext().getPackageName()));
     r.put("sdk", Build.VERSION.SDK_INT);
@@ -167,24 +175,33 @@ public class SpendLensCapturePlugin extends Plugin {
           "date>=?", new String[]{ String.valueOf(since) }, "date DESC");
         JSArray msgs = new JSArray();
         int scanned = 0, matched = 0;
+        long oldestScannedTs = 0L;
+        boolean truncated = false;
         if (c != null) {
           int ai = c.getColumnIndex("address"), bi = c.getColumnIndex("body"), di = c.getColumnIndex("date");
-          while (c.moveToNext() && scanned < 2000) {
+          while (scanned < 2000) {
+            if (!c.moveToNext()) break;
             scanned++;
+            long ts = di >= 0 ? c.getLong(di) : 0L;
+            if (ts > 0) oldestScannedTs = ts; // rows are date DESC → last seen is the oldest
             String body = bi >= 0 ? c.getString(bi) : null;
             if (body == null || !AMT.matcher(body).find() || !TXN.matcher(body).find()) continue;
             JSObject m = new JSObject();
             m.put("sender", ai >= 0 ? c.getString(ai) : "");
             m.put("body", body);
-            m.put("ts", di >= 0 ? c.getLong(di) : 0L);
+            m.put("ts", ts);
             msgs.put(m);
             matched++;
           }
+          // We stopped at the 2000-row cap but the inbox held more (within the year).
+          if (scanned >= 2000 && c.moveToNext()) truncated = true;
         }
         JSObject r = new JSObject();
         r.put("messages", msgs);
         r.put("scanned", scanned);
         r.put("matched", matched);
+        r.put("truncated", truncated);
+        r.put("oldestScannedTs", oldestScannedTs);
         call.resolve(r);
       } catch (Exception e) {
         call.reject("scan failed", e);

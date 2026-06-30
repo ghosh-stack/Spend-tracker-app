@@ -24,6 +24,12 @@ const P = {
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   pdf: '<path d="M12 3v11M8 10l4 4 4-4M5 19h14"/>',
   shield: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/>',
+  // Finance/KPI glyphs (replace the emoji in KPI cards + the More sheet).
+  card: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M7 15h3"/>',
+  tag: '<path d="M3 11.5V4.5a1 1 0 0 1 1-1h7L20.5 13 13 20.5z"/><circle cx="7.6" cy="8.1" r="1.3" fill="currentColor" stroke="none"/>',
+  receipt: '<path d="M5 3h14v18l-2.5-1.7L14 21l-2-1.7L10 21l-2.5-1.7L5 21z"/><path d="M9 8h6M9 12h6"/>',
+  refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4"/>',
+  wallet: '<path d="M4 7a2 2 0 0 1 2-2h11v4M4 7v10a2 2 0 0 0 2 2h13V9H6a2 2 0 0 1-2-2z"/><circle cx="16.5" cy="14" r="1.2" fill="currentColor" stroke="none"/>',
 };
 
 export function icon(name, size) {

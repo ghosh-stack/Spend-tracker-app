@@ -5,6 +5,7 @@ import * as ingest from './ingest.js';
 import * as lock from './lock.js';
 import * as notify from './notify.js';
 import { initUI, wireGlobals, render, setLive, setUnparsedBadge } from './ui.js';
+import { APP_VERSION } from './version.js';
 
 // Theme is a UI preference (not financial data) — fine to persist locally.
 const savedTheme = localStorage.getItem('spendlens-theme');
@@ -16,11 +17,28 @@ async function refreshBadge() {
 }
 
 async function detectBridge() {
+  // Native APK: the /ingest bridge is irrelevant (capture is native). Reflect the
+  // real capture state so a working app never shows a misleading "Offline".
+  if (window.Capacitor?.isNativePlatform?.()) return reflectCapture();
   try {
     const res = await fetch('/ingest/health', { cache: 'no-store' });
-    if (res.ok) { setLive(true); ingest.startLivePoll(4000); return; }
+    if (res.ok) { setLive('live'); ingest.startLivePoll(4000); return; }
   } catch { /* no bridge — PWA runs standalone */ }
-  setLive(false);
+  setLive('manual');
+}
+
+// Map native capture permissions → the topbar pill. native-capture.js is imported
+// asynchronously and sets window.SpendLensNative, so wait briefly for it on first run.
+async function reflectCapture() {
+  for (let i = 0; i < 25 && !window.SpendLensNative; i++) await new Promise((r) => setTimeout(r, 120));
+  const n = window.SpendLensNative;
+  if (!n) return setLive('check');
+  try {
+    const st = await n.status();
+    if (st.sms === 'granted' || st.notificationAccess) setLive('capture');
+    else if (st.sms === 'blocked') setLive('blocked');
+    else setLive('check');
+  } catch { setLive('check'); }
 }
 
 async function main() {
@@ -34,8 +52,13 @@ async function main() {
   await refreshBadge();
   detectBridge();
 
-  // Re-lock immediately on return to the foreground when the lock is on.
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) lock.maybeRelock(); });
+  // Re-lock immediately on return to the foreground when the lock is on; also
+  // refresh the capture pill (the user may have just toggled a permission in Settings).
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    lock.maybeRelock();
+    if (window.SpendLensNative) reflectCapture();
+  });
   window.addEventListener('focus', () => lock.maybeRelock());
 
   // Service worker: web (PWA) ONLY. Inside the Capacitor app the assets are already
@@ -49,7 +72,8 @@ async function main() {
     if (inCapacitor) {
       navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
     } else if (location.protocol.startsWith('http')) {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      // Version the SW URL so each release registers a fresh worker + cache (see sw.js).
+      navigator.serviceWorker.register('sw.js?v=' + APP_VERSION).catch(() => {});
       // If already controlled at load, a later controllerchange means a freshly
       // deployed SW took over — reload once so the new shell runs (no loop: the
       // guard skips first install).

@@ -30,7 +30,7 @@ system is the optional email adapter and the dev/bridge server (stdlib only).
 ```
 ┌─ ingestion ───────────────┐     ┌─ engine (pure) ─┐     ┌─ storage ──────┐     ┌─ view ─────┐
 │ paste / import            │     │ normalize       │     │ raw_messages   │     │ KPI cards  │
-│ email-imap  ─┐            │     │ match rule      │ ──▶ │ transactions   │ ──▶ │ donut/bars │
+│ email-imap  ─┐            │     │ match rule      │ ──▶ │ transactions   │ ──▶ │ money-flow │
 │ android-sms ─┴▶ /ingest ──┼──▶  │ extract fields  │     │ accounts       │     │ live feed  │
 │ (bridge queue)            │     │ categorize      │     │ rules          │     │ (pub/sub)  │
 └───────────────────────────┘     │ dedupe key      │     └────────────────┘     └────────────┘
@@ -138,3 +138,22 @@ require your own code-signing certs and are out of scope for this source drop.
   bank-app push) that forward into the WebView via the `spendlens-sms` event.
   Captured text is injected as a JSON *string literal* (`JSONObject.quote`), never
   as code. Built by CI; sideload-only by Play policy.
+
+## v0.3 additions ("Aurora")
+
+- **Visualization suite** (`charts.js`) — the dashboard centers on a money-flow
+  **Sankey** (income → spent/saved → categories), with a category **treemap**
+  (toggle donut), a daily **calendar heatmap**, and a cumulative **spending-pace**
+  line. All are pure functions returning SVG strings (no chart library); category
+  colour is one identity token from `rules.js`.
+- **PDF report** (`report.js`) — builds a standalone print-optimized HTML document
+  on-device and prints it to PDF: Android `PrintManager` in the APK, a hidden
+  iframe + `window.print()` in the browser. No PDF library.
+- **Inline-SVG icon set** (`icons.js`) — all app chrome; emoji stay for categories.
+- **Scan past SMS** — `SpendLensCapturePlugin.scanSms()` reads existing inbox texts
+  (`READ_SMS`, last 12 months / newest 2000), returns the bank-shaped ones (plus
+  `scanned`/`matched`/`truncated` metadata) for the same on-device parser.
+- **In-app updater** (`update.js` + `version.js`) — version-only GitHub-Releases
+  lookup (native HTTP so the WebView keeps `connect-src 'self'`); `APP_VERSION` is
+  CI-stamped from the release tag. The service worker's cache name is derived from
+  `APP_VERSION` (registered as `sw.js?v=<version>`) so each release self-invalidates.

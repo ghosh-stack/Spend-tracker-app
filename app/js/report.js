@@ -19,10 +19,14 @@ const DAY = 86400000;
 
 function periodWindow(preset, fromStr, toStr, now = Date.now()) {
   if (preset === 'custom') {
-    const from = fromStr ? new Date(fromStr + 'T00:00:00').getTime() : 0;
-    const to = toStr ? new Date(toStr + 'T23:59:59').getTime() : now;
+    let from = fromStr ? new Date(fromStr + 'T00:00:00').getTime() : 0;
+    let to = toStr ? new Date(toStr + 'T23:59:59').getTime() : now;
+    // A reversed range (from > to) would silently yield an empty/misleading report
+    // with a backwards label — normalize so the window is always [earlier, later].
+    let lf = fromStr, lt = toStr;
+    if (from > to) { [from, to] = [to, from]; [lf, lt] = [lt, lf]; }
     const fmt = (t) => new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    return { from, to, label: `${fromStr ? fmt(from) : 'start'} – ${toStr ? fmt(to) : 'now'}` };
+    return { from, to, label: `${lf ? fmt(from) : 'start'} – ${lt ? fmt(to) : 'now'}` };
   }
   const labels = { week: 'Last 7 days', month: 'This month', quarter: 'This quarter', year: 'This year', all: 'All time' };
   return { from: rangeStart(preset, now), to: now, label: labels[preset] || preset };

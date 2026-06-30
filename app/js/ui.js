@@ -146,8 +146,11 @@ export async function render() {
   if (state.view === 'recurring') return renderRecurring(txns);
   if (state.view === 'insights') return renderInsights(txns);
 
-  const showCharts = state.view === 'overview';
-  $('#filters').style.display = '';
+  // First run (no data at all): don't paint filters + four empty charts — the feed's
+  // setup panel leads instead, so the first screen feels guided, not abandoned. (U-009)
+  const hasData = txns.length > 0;
+  const showCharts = state.view === 'overview' && hasData;
+  $('#filters').style.display = hasData ? '' : 'none';
   $('#kpis').style.display = showCharts ? '' : 'none';
   $('#charts').style.display = showCharts ? '' : 'none';
 
@@ -206,20 +209,23 @@ function renderKPIs(s, buckets, prevSpent, prevIncome) {
   let cum = 0; const cumAmts = amts.map((a) => (cum += a));
   const top = s.topCategory;
   const cards = [
-    kpiCard({ icon: '💸', label: 'Spent', valueMinor: s.spent, delta: deltaPill(s.spent, prevSpent, true), spark: sparkline(amts.length > 1 ? amts : [0, 0], { stroke: 'var(--accent)' }) }),
-    kpiCard({ icon: '💰', label: 'Income', valueMinor: s.income, delta: deltaPill(s.income, prevIncome, false), foot: `<span class="hint mono">net ${formatMoney(s.net)}</span>` }),
+    kpiCard({ icon: icon('card', 16), label: 'Spent', valueMinor: s.spent, delta: deltaPill(s.spent, prevSpent, true), spark: sparkline(amts.length > 1 ? amts : [0, 0], { stroke: 'var(--accent)' }) }),
+    kpiCard({ icon: icon('wallet', 16), label: 'Income', valueMinor: s.income, delta: deltaPill(s.income, prevIncome, false), foot: `<span class="hint mono">net ${formatMoney(s.net)}</span>` }),
     top
       ? `<div class="card kpi"><div class="kpi-head"><span class="kpi-ico">${top.icon}</span>Top category</div>
          <div class="kpi-val" style="font-size:1.5rem">${esc(top.label)}</div>
          <div class="kpi-foot"><span class="pill"><span class="dot" style="background:${top.color}"></span><span class="mono">${formatMoney(top.amount)}</span></span><span class="hint mono">${top.pct.toFixed(0)}% of spend</span></div></div>`
-      : kpiCard({ icon: '📊', label: 'Top category', valueMinor: 0, foot: '<span class="hint">No spend yet</span>' }),
-    kpiCard({ icon: s.net >= 0 ? '🟢' : '🔴', label: 'Net flow', valueMinor: s.net, foot: `<span class="hint mono">${s.net >= 0 ? 'saved' : 'overspent'}</span>`, spark: sparkline(cumAmts.length > 1 ? cumAmts : [0, 0], { area: true, stroke: 'var(--info)' }) }),
+      : kpiCard({ icon: icon('tag', 16), label: 'Top category', valueMinor: 0, foot: '<span class="hint">No spend yet</span>' }),
+    kpiCard({ icon: icon('flow', 16), label: 'Net flow', valueMinor: s.net, foot: `<span class="hint mono">${s.net >= 0 ? 'saved' : 'overspent'}</span>`, spark: sparkline(cumAmts.length > 1 ? cumAmts : [0, 0], { area: true, stroke: 'var(--info)' }) }),
   ];
   // Hero = the spend number; the rest become a strip (horizontal scroll on phones).
   $('#kpis').innerHTML = `<div class="kpi-hero">${cards[0]}</div><div class="kpi-strip">${cards[1]}${cards[2]}${cards[3]}</div>`;
 }
 
 const titleCase = (s) => String(s).replace(/\b\w/g, (c) => c.toUpperCase());
+// Trim a label to n chars with a real ellipsis (the Sankey node keeps a full <title>
+// for hover/tap detail), so "ACME CORP SALARY" reads as "Acme Corp S…" not a hard cut.
+const abbrev = (s, n = 12) => { s = String(s).trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
 
 // Build the Sankey flow model from a summary + the period's transactions.
 function buildFlow(s, txns) {
@@ -234,7 +240,7 @@ function buildFlow(s, txns) {
   const rest = arr.slice(3).reduce((x, o) => x + o.amount, 0);
   if (rest > 0) top.push({ label: 'Other', amount: rest });
   const shades = ['var(--positive)', '#36C98F', '#2BC6C6', '#57C98A'];
-  const sources = top.map((o, i) => ({ label: titleCase(o.label).slice(0, 14), amount: o.amount, color: shades[i % shades.length] }));
+  const sources = top.map((o, i) => ({ label: abbrev(titleCase(o.label), 12), amount: o.amount, color: shades[i % shades.length] }));
   const cats = s.categories.slice(0, 6).map((c) => ({ id: c.id, label: c.label, icon: c.icon, amount: c.amount, color: c.color }));
   const restCat = s.categories.slice(6).reduce((x, c) => x + c.amount, 0);
   if (restCat > 0) cats.push({ id: 'other', label: 'Other', icon: '•', amount: restCat, color: 'var(--text-mute)' });
@@ -277,16 +283,22 @@ function renderCharts(s, buckets, filtered, allTxns) {
   const trend = state.range === 'month'
     ? `<div class="chart-card chart-wide"><div class="chart-title"><span>Spending pace</span><span class="hint mono">${esc(mh.monthLabel)}</span></div>${spendPace({ cum: mh.cum, dayOfMonth: mh.dayOfMonth, daysInMonth: mh.daysInMonth, baseline: ins.lastSpent, projected: ins.projected })}</div>`
     : `<div class="chart-card chart-wide"><div class="chart-title"><span>Spending over time</span><span class="hint mono">${state.range}</span></div>${bars(buckets)}</div>`;
+  const flowStats = (flow.income > 0 || flow.spent > 0) ? `<div class="flow-stats">
+      <span class="fstat"><span class="fk">Spent</span><span class="fv mono" style="color:var(--negative)">${formatMoney(flow.spent)}</span></span>
+      <span class="fstat"><span class="fk">Saved</span><span class="fv mono" style="color:var(--positive)">${formatMoney(flow.saved)}</span></span>
+      ${flow.savingsRate != null ? `<span class="fstat"><span class="fk">Savings rate</span><span class="fv mono">${flow.savingsRate}%</span></span>` : ''}
+    </div>` : '';
   $('#charts').innerHTML = `
     <div class="chart-card chart-hero">
       <div class="chart-title"><span>Money flow</span><span class="hint mono">${flow.savingsRate != null ? flow.savingsRate + '% saved' : 'income → spend'}</span></div>
-      ${sankey(flow, 640, 340)}
+      ${flowStats}
+      ${sankey(flow, 640, 320)}
     </div>
     <div class="chart-card">
       <div class="chart-title"><span>Breakdown</span>
         <span class="segment sm" role="group" aria-label="Breakdown style">
-          <button data-action="breakdown" data-mode="treemap" aria-checked="${state.breakdown === 'treemap'}">Treemap</button>
-          <button data-action="breakdown" data-mode="donut" aria-checked="${state.breakdown === 'donut'}">Donut</button>
+          <button type="button" data-action="breakdown" data-mode="treemap" aria-pressed="${state.breakdown === 'treemap'}">Treemap</button>
+          <button type="button" data-action="breakdown" data-mode="donut" aria-pressed="${state.breakdown === 'donut'}">Donut</button>
         </span>
       </div>
       ${breakdownBody}
@@ -342,11 +354,21 @@ function renderFeed(txns, acctMap, limit, hasAny = true, nudge = '') {
     return;
   }
   const rows = txns.slice(0, limit).map((t) => feedRow(t, acctMap)).join('');
-  $('#feedCard').innerHTML = `<div class="card">${nudge}${head}${search}<div class="feed">${rows}</div>
+  $('#feedCard').innerHTML = `<div class="card">${nudge}${head}${search}${swipeHintHtml()}<div class="feed">${rows}</div>
     ${txns.length > limit ? `<p class="hint" style="text-align:center;margin-top:12px">Showing ${limit} of ${txns.length}.</p>` : ''}</div>`;
   _flashId = null;
   refocusSearch();
 }
+// Swipe gestures are invisible without onboarding — show one subtle hint the first
+// time a feed actually has rows, then persist so it never nags again. (U-007)
+function swipeHintHtml() {
+  try {
+    if (localStorage.getItem('spendlens-swipe-hint') === '1') return '';
+    localStorage.setItem('spendlens-swipe-hint', '1');
+  } catch { return ''; }
+  return `<div class="swipe-hint">${icon('arrow', 14)} Tip: swipe a transaction — right to recategorize, left to delete (with Undo).</div>`;
+}
+
 function refocusSearch() {
   if (state.view !== 'transactions') return;
   const s = $('#txnSearch');
@@ -412,7 +434,7 @@ function renderRecurring(txns) {
 
   $('#feedCard').innerHTML = `
     <div class="card" style="margin-bottom:16px">
-      <div class="kpi-head"><span class="kpi-ico">🔁</span>Monthly recurring</div>
+      <div class="kpi-head"><span class="kpi-ico">${icon('recurring', 16)}</span>Monthly recurring</div>
       <div class="kpi-val">${m.sign}<span class="sym">${m.sym}</span>${m.whole}<span class="frac">${m.frac}</span></div>
       <div class="hint mono" style="margin-top:6px">${confirmed.length} subscription${confirmed.length === 1 ? '' : 's'} · ${formatMoney(monthly * 12)}/yr committed</div>
     </div>
@@ -461,10 +483,10 @@ async function renderInsights(txns) {
 
   $('#feedCard').innerHTML = `
     <div class="kpis" style="margin-bottom:16px">
-      ${kpi('💸', 'Spent this month', formatMoney(ins.thisSpent), momPill)}
-      ${kpi('📈', 'Projected month-end', formatMoney(ins.projected), `<span class="hint mono">at ${formatMoney(ins.dailyAvg)}/day</span>`)}
-      ${kpi('💰', 'Income', formatMoney(ins.income), ins.savingsRate == null ? '' : `<span class="hint mono">${ins.savingsRate}% saved</span>`)}
-      ${kpi('🧾', 'Biggest spend', ins.biggest ? formatMoney(ins.biggest.amount) : '—', ins.biggest ? `<span class="hint">${esc(ins.biggest.merchant || categoryById(ins.biggest.category).label)}</span>` : '')}
+      ${kpi(icon('card', 16), 'Spent this month', formatMoney(ins.thisSpent), momPill)}
+      ${kpi(icon('insights', 16), 'Projected month-end', formatMoney(ins.projected), `<span class="hint mono">at ${formatMoney(ins.dailyAvg)}/day</span>`)}
+      ${kpi(icon('wallet', 16), 'Income', formatMoney(ins.income), ins.savingsRate == null ? '' : `<span class="hint mono">${ins.savingsRate}% saved</span>`)}
+      ${kpi(icon('receipt', 16), 'Biggest spend', ins.biggest ? formatMoney(ins.biggest.amount) : '—', ins.biggest ? `<span class="hint">${esc(ins.biggest.merchant || categoryById(ins.biggest.category).label)}</span>` : '')}
     </div>
     <div class="card" style="margin-bottom:16px"><div class="feed-head"><h2>Budgets · this month</h2></div>
       ${budgetRows || '<p class="hint">Set a monthly budget on any category to track it here.</p>'}
@@ -497,12 +519,17 @@ function emptyState(hasAny) {
       <p>No transactions match the current filters.</p>
       <button class="btn ghost" data-action="reset">Clear filters</button></div>`;
   }
-  return `<div class="empty"><div class="glyph" style="background:transparent">${brandMark(48)}</div>
+  // APK users get a one-tap "Scan past SMS" entry into the capture screen.
+  const scan = window.SpendLensNative ? '<button class="btn" data-action="capture">⤓ Scan past SMS</button>' : '';
+  return `<div class="empty setup"><div class="glyph" style="background:transparent">${brandMark(48)}</div>
     <h3>Track every rupee, privately</h3>
-    <p>SpendLens turns your bank's SMS &amp; email alerts into a live dashboard — parsed on-device, nothing leaves your phone.</p>
-    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+    <p>SpendLens turns your bank's SMS &amp; email alerts into a live dashboard — parsed on-device, nothing leaves your phone. Start with one of these:</p>
+    <div class="setup-actions">
       <button class="btn primary" data-action="sample">Load demo data</button>
-      <button class="btn ghost" data-action="paste">Paste a bank alert</button></div></div>`;
+      ${scan}
+      <button class="btn" data-action="paste">Paste a bank alert</button>
+      <button class="btn" data-action="add">Add manually</button></div>
+    <p class="hint" style="margin-top:14px">Your dashboard — money-flow, spending calendar and breakdown — fills in as soon as there's data.</p></div>`;
 }
 
 // One contextual nudge for the overview: the nearest upcoming recurring bill.
@@ -511,7 +538,7 @@ function buildNudge(txns) {
   if (!r) return '';
   const cat = categoryById(r.category);
   return `<div class="nudge" data-view="recurring" role="button" tabindex="0">
-    <div class="tile" style="background:${cat.color}22;color:${cat.color}">🔁</div>
+    <div class="tile" style="background:${cat.color}22;color:${cat.color}">${icon('recurring', 18)}</div>
     <div class="n-main"><b>${esc(r.displayName)} · ${esc(formatMoney(r.amountMinor))}</b>
       <div class="hint">${esc(r.kind)} due ${esc(fmtNext(r))}</div></div>
     <span class="n-go">${icon('arrow', 16)}</span></div>`;
@@ -699,19 +726,38 @@ async function openEditModal(id) {
 }
 
 function openMenuModal() {
+  // Grouped + icon'd so the sheet reads as sections, not a flat command dump; the
+  // destructive action is isolated in its own "Danger zone". (U-005 / U-006)
+  const item = (attr, ico, label, sub, danger) =>
+    `<button class="menu-item${danger ? ' danger' : ''}" ${attr}>
+      <span class="menu-ico">${ico}</span>
+      <span class="menu-txt"><span>${label}</span>${sub ? `<span class="menu-sub">${sub}</span>` : ''}</span></button>`;
+  const group = (title, items) => `<div class="menu-group"><p class="menu-label2">${title}</p>${items.join('')}</div>`;
   openModal(`<div class="modal-head"><h3>More</h3><button class="btn ghost icon" data-action="close" aria-label="Close">✕</button></div>
-    <div class="modal-body" style="gap:8px">
-      <button class="btn" data-view="insights">📊 Insights & budgets</button>
-      <button class="btn" data-view="unparsed">⚠ Needs review</button>
-      <button class="btn" data-action="capture">📡 Capture status</button>
-      <button class="btn" data-action="settings">🔒 Privacy & alerts</button>
-      <button class="btn" data-action="paste">Paste a bank alert</button>
-      <button class="btn" data-action="import">Import file (.json / .csv)</button>
-      <button class="btn" data-action="sample">Load demo data</button>
-      <button class="btn" data-action="export">Export my data</button>
-      <button class="btn" data-action="report">📄 Export PDF report</button>
-      <button class="btn" data-action="updates">⟳ Check for updates</button>
-      <button class="btn" data-action="erase" style="color:var(--negative)">Erase all data</button>
+    <div class="modal-body menu">
+      ${group('Explore', [
+        item('data-view="insights"', icon('insights', 17), 'Insights & budgets'),
+        item('data-view="unparsed"', icon('review', 17), 'Needs review', 'Messages we couldn’t parse'),
+      ])}
+      ${group('Status', [
+        item('data-action="capture"', icon('flow', 17), 'Capture status', 'SMS & email permissions'),
+        item('data-action="updates"', icon('refresh', 17), 'Check for updates'),
+      ])}
+      ${group('Add data', [
+        item('data-action="paste"', icon('paste', 17), 'Paste a bank alert'),
+        item('data-action="import"', icon('import', 17), 'Import file (.json / .csv)'),
+        item('data-action="sample"', icon('sparkle', 17), 'Load demo data'),
+      ])}
+      ${group('Export', [
+        item('data-action="export"', icon('export', 17), 'Export my data', 'JSON + CSV backup'),
+        item('data-action="report"', icon('pdf', 17), 'Export PDF report'),
+      ])}
+      ${group('Settings', [
+        item('data-action="settings"', icon('shield', 17), 'Privacy & alerts'),
+      ])}
+      ${group('Danger zone', [
+        item('data-action="erase"', icon('trash', 17), 'Erase all data', 'Permanent — no cloud copy', true),
+      ])}
     </div>`);
 }
 
@@ -754,9 +800,17 @@ async function openCaptureModal() {
       ${oem.includes('samsung') ? '<p class="cap-oem">Samsung: also turn OFF Settings → Security &amp; privacy → <b>Auto Blocker</b>.</p>' : ''}
       ${oem.includes('xiaomi') ? '<p class="cap-oem">Xiaomi: enable <b>Autostart</b> for SpendLens and set Battery saver to <b>No restrictions</b>.</p>' : ''}
       <button class="btn sm" id="capAppInfo">Open App info</button></div>` : '';
-    const scanBox = `<div class="cap-scan"><b>Import past transactions</b>
-      <p class="hint">Read the bank texts already on this phone and add any not recorded yet — stays on-device, only money texts are read. (Past emails can't be read; use Paste for those.)</p>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="btn sm primary" id="capScan">⤓ Scan past SMS</button><span id="capScanMsg" class="hint"></span></div></div>`;
+    // Past-SMS backfill uses READ_SMS — a separate grant from incoming-SMS capture.
+    const rs = st.readSms; // 'granted' | 'denied' | 'blocked' (undefined on pre-readSms builds)
+    const rsPill = rs === 'granted' ? '<span class="pill ok">Allowed</span>'
+      : rs === 'blocked' ? '<span class="pill bad">Blocked</span>'
+      : rs ? '<span class="pill warnp">Not yet allowed</span>' : '';
+    const scanLabel = rs && rs !== 'granted' ? 'Grant past-SMS access' : '⤓ Scan past SMS';
+    const scanBox = `<div class="cap-scan">
+      <div class="cap-scan-head"><b>Past SMS backfill</b>${rsPill}</div>
+      <p class="hint">Reads the bank texts already on this phone and adds any not recorded yet — on-device, only money texts are read. <b>Scans the last 12 months, newest 2000 messages.</b> (Past emails can't be read; use Paste for those.)</p>
+      ${rs === 'blocked' ? '<p class="hint">Reading past SMS is blocked for sideloaded apps. Use <b>Open App info → Allow restricted settings</b> above, then come back.</p>' : ''}
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="btn sm primary" id="capScan"${rs === 'blocked' ? ' disabled' : ''}>${scanLabel}</button><span id="capScanMsg" class="hint"></span></div></div>`;
     body.innerHTML = smsRow + naRow + steps + scanBox + '<div class="cap-note ok">Manual <b>Paste</b> &amp; <b>Import</b> always work, whatever the permissions.</div>';
     const wire = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', async () => { try { await fn(); } catch {} setTimeout(refreshCap, 500); }); };
     wire('capSms', () => native.requestSms());
@@ -768,7 +822,11 @@ async function openCaptureModal() {
       scanBtn.disabled = true; scanBtn.textContent = 'Scanning…';
       let res;
       try { res = await native.scanSms(); }
-      catch (e) { scanBtn.disabled = false; scanBtn.textContent = '⤓ Scan past SMS'; if (scanMsg) scanMsg.textContent = "Couldn't read SMS (allow the permission)."; return; }
+      catch (e) {
+        scanBtn.disabled = false; scanBtn.textContent = scanLabel;
+        if (scanMsg) scanMsg.textContent = "Couldn't read past SMS — allow the “Read SMS” permission (or Allow restricted settings).";
+        return;
+      }
       const list = (res && res.messages) || [];
       let added = 0, dup = 0, i = 0;
       for (const m of list) {
@@ -778,8 +836,12 @@ async function openCaptureModal() {
         i++;
         if (scanMsg && (i % 5 === 0 || i === list.length)) scanMsg.textContent = `Reading ${i}/${list.length} · added ${added}…`;
       }
+      // READ_SMS is granted now (the scan succeeded), so the button reverts to the scan label.
       scanBtn.disabled = false; scanBtn.textContent = '⤓ Scan past SMS';
-      if (scanMsg) scanMsg.textContent = list.length ? `Added ${added}${dup ? ` · ${dup} already recorded` : ''}.` : 'No bank texts found.';
+      const tail = res && res.truncated ? ' · older texts beyond the newest 2000 weren’t scanned' : '';
+      if (scanMsg) scanMsg.textContent = list.length
+        ? `Added ${added}${dup ? ` · ${dup} already recorded` : ''}${tail}.`
+        : `No bank texts found${res && res.scanned ? ` (scanned ${res.scanned})` : ''}.`;
       toast(`Imported ${added} expense${added === 1 ? '' : 's'} from past SMS`);
       render();
     });
@@ -801,6 +863,7 @@ function openReportModal() {
         <label class="lab">From<input class="input" type="date" id="rpFrom"></label>
         <label class="lab">To<input class="input" type="date" id="rpTo"></label>
       </div>
+      <p id="rpErr" class="hint" style="color:var(--negative);margin:0" hidden></p>
     </div>
     <div class="modal-foot"><button class="btn ghost" data-action="close">Cancel</button>
       <button class="btn primary" id="rpGo">Generate PDF</button></div>`);
@@ -814,7 +877,12 @@ function openReportModal() {
   m.querySelector('#rpGo').addEventListener('click', async () => {
     const from = m.querySelector('#rpFrom') ? m.querySelector('#rpFrom').value : '';
     const to = m.querySelector('#rpTo') ? m.querySelector('#rpTo').value : '';
-    if (preset === 'custom' && !from && !to) { toast('Pick a date range'); return; }
+    const err = m.querySelector('#rpErr');
+    const showErr = (msg) => { if (err) { err.textContent = msg; err.hidden = false; } };
+    if (err) err.hidden = true;
+    if (preset === 'custom' && !from && !to) { showErr('Pick a date range.'); return; }
+    // ISO date strings compare lexicographically — reject a backwards range up front.
+    if (preset === 'custom' && from && to && from > to) { showErr('“From” must be on or before “To”.'); return; }
     closeModal();
     toast('Building report…');
     try { await exportReport(preset, from, to); } catch (e) { toast("Couldn't build the report"); }
@@ -988,10 +1056,24 @@ export function wireGlobals() {
   });
 }
 
-export function setLive(on) {
-  const pill = $('#livePill');
+// Topbar status pill. The /ingest "Offline" wording was misleading inside the APK,
+// where the bridge is irrelevant and capture is native — so the pill speaks two
+// dialects: web (live | manual) and native (capture | blocked | check).
+const PILL = {
+  live:    ['Live', true, ''],
+  manual:  ['Manual', false, ''],          // web, no bridge — paste/import still work
+  capture: ['Capture on', true, ''],       // native, SMS or notification access granted
+  blocked: ['Capture blocked', false, 'pill-bad'],
+  check:   ['Check capture', false, 'pill-warn'],
+};
+export function setLive(mode) {
+  const pill = $('#livePill'); if (!pill) return;
+  const [txt, on, cls] = PILL[mode === true ? 'live' : mode === false ? 'manual' : mode] || PILL.manual;
   pill.classList.toggle('on', on);
-  $('#liveText').textContent = on ? 'Live' : 'Offline';
+  pill.classList.remove('pill-bad', 'pill-warn');
+  if (cls) pill.classList.add(cls);
+  pill.title = txt;
+  $('#liveText').textContent = txt;
 }
 
 export function setUnparsedBadge(n) {

@@ -29,11 +29,16 @@ for (const f of readdirSync(join(nativeDir, 'capture'))) {
 const manifestPath = join(appMain, 'AndroidManifest.xml');
 let m = readFileSync(manifestPath, 'utf8');
 
-const PERMS = `    <uses-permission android:name="android.permission.RECEIVE_SMS" />
-    <uses-permission android:name="android.permission.READ_SMS" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-`;
+// Each permission is checked independently so a manifest already patched with an
+// older permission set (e.g. RECEIVE_SMS but not READ_SMS) still gains the new ones
+// on re-run. Patching the whole block only when RECEIVE_SMS was absent used to skip
+// later additions on an existing android/ project.
+const PERM_NAMES = [
+  'RECEIVE_SMS',
+  'READ_SMS',
+  'POST_NOTIFICATIONS',
+  'REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+];
 const COMPONENTS = `        <receiver
             android:name="app.spendlens.capture.SmsReceiver"
             android:exported="true"
@@ -52,12 +57,14 @@ const COMPONENTS = `        <receiver
         </service>
 `;
 
-if (!m.includes('RECEIVE_SMS')) {
-  m = m.replace(/(<manifest[^>]*>\s*)/, `$1\n${PERMS}`);
+const missingPerms = PERM_NAMES.filter((p) => !m.includes('android.permission.' + p));
+if (missingPerms.length) {
+  const block = missingPerms.map((p) => `    <uses-permission android:name="android.permission.${p}" />`).join('\n') + '\n';
+  m = m.replace(/(<manifest[^>]*>\s*)/, `$1\n${block}`);
 }
 if (!m.includes('SpendLensNotificationListener')) {
   m = m.replace('</application>', `${COMPONENTS}    </application>`);
 }
 writeFileSync(manifestPath, m);
 
-console.log('apply-native: MainActivity + capture/*.java copied, manifest patched.');
+console.log(`apply-native: MainActivity + capture/*.java copied, manifest patched (added perms: ${missingPerms.join(', ') || 'none'}).`);

@@ -1,7 +1,13 @@
 // Service worker: precache the app shell so SpendLens installs and runs offline.
 // The /ingest bridge is never cached (it must hit the live local server or fail
-// gracefully). Bump CACHE on any shell change to invalidate old copies.
-const CACHE = 'spendlens-v5';
+// gracefully).
+//
+// Cache versioning is AUTOMATIC: app.js registers this worker as `sw.js?v=<APP_VERSION>`,
+// and APP_VERSION is stamped by release CI from the git tag. A different version =
+// a different worker URL = a fresh install + a new cache name, so a release can never
+// be served from a stale shell cache. (Manual/untagged builds stay '0.0.0-dev'.)
+const VERSION = new URL(self.location.href).searchParams.get('v') || '0.0.0-dev';
+const CACHE = 'spendlens-' + VERSION;
 const SHELL = [
   '.', 'index.html', 'manifest.webmanifest',
   'css/styles.css',

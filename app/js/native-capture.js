@@ -11,6 +11,14 @@ const Plugin = (Cap.Plugins && Cap.Plugins.SpendLensCapture)
   || (typeof Cap.registerPlugin === 'function' ? Cap.registerPlugin('SpendLensCapture') : null);
 const Prefs = (Cap.Plugins && Cap.Plugins.Preferences) || null;
 
+// If the native plugin failed to register, fail loudly with a diagnostic instead of
+// throwing an opaque TypeError later (e.g. inside drain()). app.js's dynamic-import
+// .catch records this, and the Capture-status screen surfaces window.__capErr.
+if (!Plugin) {
+  try { window.__capErr = 'SpendLensCapture plugin missing'; } catch {}
+  throw new Error('SpendLensCapture plugin missing');
+}
+
 // Prefer the native Preferences plugin; fall back to localStorage so the
 // 'onboarded' flag (which gates the one-time permission requests) is
 // deterministic even if the plugin proxy isn't populated in the WebView.

@@ -44,18 +44,44 @@ cd adapters/email-imap && npm install && npm start
 ```
 Details and provider notes: [adapters/email-imap/README.md](../adapters/email-imap/README.md).
 
-## 4. Optional: Android SMS auto-capture
+## 4. Android app: auto-capture APK
 
-Two routes, both honest about Google Play's SMS-permission policy. The no-code
-automation-app route works today; the native Capacitor wrapper needs a self-signed,
-sideloaded APK. See [adapters/android-sms/README.md](../adapters/android-sms/README.md).
+The real Android deliverable is the Capacitor app in [`android-native/`](../android-native/),
+which auto-captures bank **SMS** + **email/push** on-device. It's distributed as a
+**self-signed, sideloaded APK** (Google Play restricts the `RECEIVE_SMS` /
+notification-access permissions an expense tracker can't qualify for).
 
-## 5. Optional: native binaries
+**[`android-native/README.md`](../android-native/README.md) is the source of
+truth** for building, sideloading, first-run permissions, *Scan past SMS*
+backfill, and the in-app updater. The fastest path needs **no local Android
+toolchain**:
 
-These wrap the **same** `app/` build — only add them if you want a signed
-installer or on-device SMS capture.
+```bash
+# Build via GitHub Actions: push a release tag (or run the "Android APK" workflow).
+git tag v0.3.6 && git push origin v0.3.6
+# → CI builds a debug-signed APK, stamps the version, and attaches it to the Release.
+#   Download it to your phone and open it (allow "install unknown apps").
+```
 
-### Desktop — Tauri
+Build locally instead (needs Node 18+, JDK 17, Android SDK):
+
+```bash
+cd android-native
+npm install
+npx cap add android      # first time only — generates the android/ project
+npm run sync             # copies ../app + injects native capture, patches the manifest
+cd android && ./gradlew assembleDebug
+# → android/app/build/outputs/apk/debug/app-debug.apk  → sideload to your phone
+```
+
+The legacy no-code [SMS forwarder](../adapters/android-sms/README.md) still works
+for the web/PWA route, but the native APK is the recommended path.
+
+## 5. Optional: desktop binary (Tauri)
+
+Wraps the **same** `app/` build in the OS WebView — only add it if you want a
+signed desktop installer.
+
 ```bash
 npm create tauri-app@latest          # choose "use existing frontend": point frontendDist at ../app
 npm run tauri build                  # produces a platform installer
@@ -65,20 +91,14 @@ macOS, `webkit2gtk` on Linux). Tauri can run `adapters/email-imap/poller.js` as
 a sidecar so users don't start it by hand. Cross-OS builds happen **on** each OS
 (or a CI matrix).
 
-### Android — Capacitor
-```bash
-npm i @capacitor/core @capacitor/cli
-npx cap init SpendLens app.spendlens --web-dir ../app
-npx cap add android
-npx cap open android                 # build/sign in Android Studio
-```
-Needs Android Studio + SDK + JDK + Gradle. Add the SMS `BroadcastReceiver` from
-the [android-sms adapter](../adapters/android-sms/README.md), sign with your own
-keystore, and sideload.
+(The Android app is covered in §4 — it's built by the `android-native/` CI, not
+hand-wired with `cap init`.)
 
-> **Sandbox note:** this repo produces all source and configs but **not** signed
-> binaries — code-signing (Authenticode, Apple notarization, an Android keystore)
-> needs your own certificates on your own machines. The PWA path needs nothing signed.
+> **Sandbox note:** this repo produces all source and configs but **not**
+> release-signed binaries — release code-signing (Authenticode, Apple
+> notarization, an Android *release* keystore) needs your own certificates on your
+> own machines. The PWA path needs nothing signed, and the Android CI ships a
+> **debug-signed** APK (a committed, non-secret debug keystore) that sideloads fine.
 
 ## 6. Tests
 ```bash

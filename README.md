@@ -71,9 +71,15 @@ Then **install it**: in Chrome/Edge click the address-bar *Install* icon
   the next charge, and totals your monthly commitment.
 - **Insights & budgets** — month-over-month, projected month-end, savings rate,
   top merchants, and per-category monthly budgets with progress bars.
-- **Live dashboard** — KPI cards, SVG category donut, spend-over-time chart, live
-  feed with search + per-txn notes and exclude-from-spend. Dark/light, responsive, WCAG-AA.
-- **Native Android** — Capacitor app that auto-captures SMS + email/push on-device.
+- **Live dashboard** — KPI cards plus a money-flow **Sankey**, a category
+  **treemap** (toggle to donut), a daily **spending-calendar heatmap**, and a
+  month **spending-pace** chart; live feed with search, per-txn notes and
+  exclude-from-spend. Dark/light, responsive, WCAG-AA.
+- **PDF report export** — pick a period; SpendLens builds a polished report
+  on-device and hands it to the system print dialog (Save as PDF). No PDF library.
+- **Native Android** — Capacitor app that auto-captures SMS + email/push
+  on-device, with a **Capture-status** screen, a **Scan past SMS** backfill
+  (`READ_SMS`, last 12 months), and an in-app **GitHub-Releases updater**.
 - **App lock + alerts** — PIN/biometric lock; local notifications for large spends
   and budget limits.
 - **Privacy** — 100% local, no telemetry, one-click **export** (JSON+CSV) and
@@ -84,12 +90,14 @@ Then **install it**: in Chrome/Edge click the address-bar *Install* icon
 ```
 app/                     The PWA — open this in a browser. Zero dependencies.
   index.html  manifest.webmanifest  sw.js
-  css/styles.css         "Ledger" design system (dark + light)
+  css/styles.css         "Aurora" design system (dark + light)
   js/
     money.js   parser.js   rules.js          ← pure engine (tested)
     db.js      ingest.js   queries.js         ← storage · dedupe/merge · insights/recurring
-    charts.js  ui.js       app.js             ← view + glue
+    charts.js  icons.js    report.js          ← native SVG charts · inline icons · PDF report
+    ui.js      app.js                         ← view + glue
     lock.js    notify.js   native-capture.js  ← app lock · alerts · Capacitor glue
+    update.js  version.js                     ← in-app GitHub-Releases updater (CI-stamped version)
   data/sample-notifications.json
 android-native/          Capacitor Android app — on-device SMS + email/push capture
 tools/serve.js / serve.py  Local dev server (Node / Python); serve.js also bridges adapters
@@ -107,7 +115,7 @@ docs/                    ARCHITECTURE · SETUP · USAGE · STYLE_GUIDE · PRIVAC
 - [**USAGE.md**](docs/USAGE.md) — day-to-day use, ingestion options, adding bank rules.
 - [**STYLE_GUIDE.md**](docs/STYLE_GUIDE.md) — the visual system (tokens, type, components).
 - [**PRIVACY.md**](docs/PRIVACY.md) — the GDPR posture and exactly what data lives where.
-- [**android-native/README.md**](android-native/README.md) — build & sideload the auto-capture Android app.
+- [**android-native/README.md**](android-native/README.md) — **the source of truth for the Android APK**: GitHub-Actions build & sideload, first-run permissions, *Scan past SMS* backfill, and the in-app updater.
 
 ## Design philosophy
 

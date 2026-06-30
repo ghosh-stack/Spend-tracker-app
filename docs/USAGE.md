@@ -2,25 +2,35 @@
 
 ## First run
 
-Open the app and click **Load demo data** (in the sidebar, or the empty-state
-button). It ingests 36 sample bank notifications so you can see the dashboard
-populated. Click **Erase all** any time to clear everything and start with your
-own data.
+Open the app. On a brand-new install you get a focused setup panel — pick
+**Load demo data** (ingests 44 sample bank notifications so you can see the
+dashboard populated), **Paste a bank alert**, **Add manually**, or (in the
+Android app) **Scan past SMS**. Click **Erase all** any time to clear everything
+and start with your own data.
 
 ## The dashboard
 
 - **Filters** — segmented date range (Week / Month / Quarter / Year / All) plus
-  category and account dropdowns. *Reset* appears when a filter is active.
-- **KPI cards** — Spent, Income, Top category, Net flow. Deltas compare to the
-  previous equivalent period (spend ▲ is red, income ▲ is green).
-- **Category donut** — composition of the period; hover a slice to isolate it.
-  A category's color is the same everywhere (slice, legend, pill, icon tile).
-- **Spending over time** — daily/weekly/monthly bars; the most recent bar is
-  highlighted. Hover any bar for its total.
+  category and account dropdowns. *Reset* appears when a filter is active. On
+  phones the filter row scrolls sideways on its own.
+- **KPI hero + strip** — a large **Spent** figure, then Income, Top category and
+  Net flow. Deltas compare to the previous equivalent period (spend ▲ is red,
+  income ▲ is green).
+- **Money flow (Sankey)** — the hero chart: income → spent/saved → categories,
+  with a compact spent / saved / savings-rate header above it. Tap a category
+  ribbon or node to filter the feed to it.
+- **Breakdown** — a **treemap** of categories by default; toggle to a **donut**.
+  A category's color is the same everywhere (tile, slice, ribbon, legend, pill).
+- **Spending calendar** — a heatmap of daily spend this month (darker = more;
+  today is ringed). Hover/tap a day for its total.
+- **Spending pace** — your cumulative month-to-date spend against last month's
+  pace and a projected month-end (on the Month range; other ranges show bars).
 - **Activity feed** — every transaction with its category, account, method and
-  time. New ones slide in live. Income shows green with a `+`.
+  time. New ones slide in live. Income shows green with a `+`. **Swipe** a row:
+  right to recategorize, left to delete (with **Undo**).
 - **Views** (sidebar / bottom nav): **Dashboard**, **Transactions** (full list),
-  **Needs review** (messages that didn't parse).
+  **Recurring**, **Insights**, **Needs review** (messages that didn't parse). On
+  phones, Insights / Needs review / Capture status / Export live in the **More** sheet.
 
 ## Getting transactions in
 
@@ -30,12 +40,22 @@ own data.
    merchant, category, date).
 3. **Import a file** — *Import file* accepts a previous SpendLens **JSON export**
    (restores everything) or a **CSV / .txt** with one bank message per line.
-4. **Email (automatic)** — run the [IMAP poller](../adapters/email-imap/README.md).
-5. **Android SMS (automatic)** — set up the [SMS forwarder](../adapters/android-sms/README.md).
+4. **Android app (automatic)** — the [native APK](../android-native/README.md)
+   captures incoming bank **SMS** and **email/bank-app push** on-device, with no
+   bridge or login. Check **More → Capture status** to grant/diagnose permissions,
+   and use **Scan past SMS** there to backfill bank texts already on the phone
+   (last 12 months, newest 2000 messages; on-device, only money texts are read).
+5. **Email (automatic, desktop)** — optionally run the
+   [IMAP poller](../adapters/email-imap/README.md) for full email bodies.
 
-When the Node bridge (`node tools/serve.js`) is running and reachable, the top
-bar shows a green **Live** pill and the app pulls forwarded messages every few
-seconds. Otherwise it shows **Offline** and works fully in manual/import mode.
+The top-bar status pill reflects how data is arriving:
+
+- **Android app** — *Capture on* (a permission is granted), *Capture blocked*
+  (Android is blocking a sideloaded permission — fix it in Capture status), or
+  *Check capture*.
+- **Web/PWA** — *Live* when the optional Node bridge (`node tools/serve.js`) is
+  reachable and pulling forwarded messages, otherwise *Manual* (paste/import). The
+  bridge is never required — manual paste and import always work.
 
 ## Editing a transaction
 
@@ -92,9 +112,25 @@ Use **Needs review** to copy the exact text you need to match, write the rule,
 reload, and re-paste (or re-import). Per-user rules can also be stored in the
 `rules` IndexedDB store and are merged over the built-ins automatically.
 
+## Export a PDF report
+
+**More → Export PDF report** → pick a period (presets or a custom date range) →
+*Generate PDF*. SpendLens builds a polished report **on-device** (KPIs, money-flow
+Sankey, by-category, top merchants, recurring, transactions) and opens the system
+print dialog — choose **Save as PDF**. There's no PDF library and nothing leaves
+the device. A reversed custom range (From after To) is rejected up front.
+
+## Keeping the Android app updated
+
+Sideloaded APKs don't auto-update. **More → Check for updates** asks the GitHub
+Releases API for the latest version and, if newer, flips to a **Download** button
+that opens the new APK — install it over the top and **your data is kept**. It's a
+version-only lookup; no personal data is sent. See
+[android-native/README.md](../android-native/README.md).
+
 ## Your data
 
-- **Export** (sidebar) downloads a full **JSON** backup *and* a **CSV** of
+- **Export** (sidebar / More) downloads a full **JSON** backup *and* a **CSV** of
   transactions.
 - **Erase all** deletes the entire local database (irreversible — there is no
   cloud copy).

@@ -13,5 +13,5 @@
     "serve": "node tools/serve.js",
     "test": "node --test tests/"
   },
-  "comment": "The PWA in /app has ZERO runtime dependencies. The email ingestion adapter has its own package.json in /adapters/email-imap (install only if you use it). The dev/bridge server uses only the Node standard library."
+  "comment": "This version field is NOT the app version — it is private/unpublished. The authoritative running version is CI-stamped into app/js/version.js (APP_VERSION) from the release git tag. The PWA in /app has ZERO runtime dependencies. The email ingestion adapter has its own package.json in /adapters/email-imap (install only if you use it). The dev/bridge server uses only the Node standard library."
 }
