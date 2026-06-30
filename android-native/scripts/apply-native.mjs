@@ -30,6 +30,7 @@ const manifestPath = join(appMain, 'AndroidManifest.xml');
 let m = readFileSync(manifestPath, 'utf8');
 
 const PERMS = `    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 `;

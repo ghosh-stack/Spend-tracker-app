@@ -48,13 +48,19 @@ cd android && ./gradlew assembleDebug
 ## First run (on the phone)
 
 A one-time wizard requests, with an explanation before each:
-1. **SMS permission** (`RECEIVE_SMS`) — read incoming bank texts (not your history).
+1. **SMS permission** (`RECEIVE_SMS`) — read incoming bank texts as they arrive.
 2. **Notification access** — opens system Settings; toggle SpendLens on so it can
    read mail/bank-app alerts. (Can't be granted programmatically.)
 3. **Battery exemption** — keep capture running in the background.
 
 Each step is skippable; manual paste/import always works. A capture-status screen
 shows what's granted and when the last alert was captured.
+
+**Backfill existing texts:** *More → Capture status → Scan past SMS* does a one-time
+import of bank texts already on the phone (`READ_SMS`; on-device, only amount-bearing
+texts are read, existing transactions are de-duped). Past *emails* can't be
+backfilled — the notification listener only sees alerts as they arrive — so use
+Paste for older email receipts.
 
 ## Updating the app
 

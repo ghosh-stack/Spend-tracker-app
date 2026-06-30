@@ -46,6 +46,7 @@ window.SpendLensNative = {
   plugin: Plugin,
   status: () => Plugin.getStatus(),
   requestSms: () => Plugin.requestSmsPermission(),
+  scanSms: () => Plugin.scanSms(),
   openNotificationAccess: () => Plugin.openNotificationAccessSettings(),
   openAppInfo: () => Plugin.openAppInfo().catch(() => {}),
   // GitHub release lookup via native HTTP (keeps the WebView CSP at connect-src

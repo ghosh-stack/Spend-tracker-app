@@ -735,7 +735,7 @@ async function openCaptureModal() {
       <p class="hint mono" style="margin-top:8px;opacity:.7">diagnostics — ${diag}</p>`;
     return;
   }
-  const render = async () => {
+  const refreshCap = async () => {
     let st; try { st = await native.status(); } catch { st = {}; }
     const oem = st.manufacturer || '';
     const smsRow = st.sms === 'granted'
@@ -754,15 +754,37 @@ async function openCaptureModal() {
       ${oem.includes('samsung') ? '<p class="cap-oem">Samsung: also turn OFF Settings → Security &amp; privacy → <b>Auto Blocker</b>.</p>' : ''}
       ${oem.includes('xiaomi') ? '<p class="cap-oem">Xiaomi: enable <b>Autostart</b> for SpendLens and set Battery saver to <b>No restrictions</b>.</p>' : ''}
       <button class="btn sm" id="capAppInfo">Open App info</button></div>` : '';
-    body.innerHTML = smsRow + naRow + steps + '<div class="cap-note ok">Manual <b>Paste</b> &amp; <b>Import</b> always work, whatever the permissions.</div>';
-    const wire = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', async () => { try { await fn(); } catch {} setTimeout(render, 500); }); };
+    const scanBox = `<div class="cap-scan"><b>Import past transactions</b>
+      <p class="hint">Read the bank texts already on this phone and add any not recorded yet — stays on-device, only money texts are read. (Past emails can't be read; use Paste for those.)</p>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="btn sm primary" id="capScan">⤓ Scan past SMS</button><span id="capScanMsg" class="hint"></span></div></div>`;
+    body.innerHTML = smsRow + naRow + steps + scanBox + '<div class="cap-note ok">Manual <b>Paste</b> &amp; <b>Import</b> always work, whatever the permissions.</div>';
+    const wire = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', async () => { try { await fn(); } catch {} setTimeout(refreshCap, 500); }); };
     wire('capSms', () => native.requestSms());
     wire('capUnblock', () => native.openAppInfo());
     wire('capNa', () => native.openNotificationAccess());
     wire('capAppInfo', () => native.openAppInfo());
+    const scanBtn = $('#capScan'), scanMsg = $('#capScanMsg');
+    if (scanBtn) scanBtn.addEventListener('click', async () => {
+      scanBtn.disabled = true; scanBtn.textContent = 'Scanning…';
+      let res;
+      try { res = await native.scanSms(); }
+      catch (e) { scanBtn.disabled = false; scanBtn.textContent = '⤓ Scan past SMS'; if (scanMsg) scanMsg.textContent = "Couldn't read SMS (allow the permission)."; return; }
+      const list = (res && res.messages) || [];
+      if (scanMsg) scanMsg.textContent = `Reading ${list.length} bank text${list.length === 1 ? '' : 's'}…`;
+      let added = 0, dup = 0;
+      for (const m of list) {
+        const r = await ingest.ingestRaw({ source: 'android-sms', sender: m.sender, body: m.body, receivedAt: m.ts });
+        if (r === 'parsed' || r === 'merged' || r === 'soft') added++;
+        else if (r === 'duplicate' || r === 'duplicate-txn') dup++;
+      }
+      scanBtn.disabled = false; scanBtn.textContent = '⤓ Scan past SMS';
+      if (scanMsg) scanMsg.textContent = `Added ${added}${dup ? ` · ${dup} already recorded` : ''}.`;
+      toast(`Imported ${added} expense${added === 1 ? '' : 's'} from past SMS`);
+      render();
+    });
   };
-  await render();
-  const onVis = () => { if (!document.hidden && $('#capBody')) render(); }; // re-check after returning from Settings
+  await refreshCap();
+  const onVis = () => { if (!document.hidden && $('#capBody')) refreshCap(); }; // re-check after returning from Settings
   document.addEventListener('visibilitychange', onVis);
   $('#modal').addEventListener('close', () => document.removeEventListener('visibilitychange', onVis), { once: true });
 }

@@ -3,6 +3,7 @@ package app.spendlens.capture;
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.print.PrintAttributes;
@@ -21,6 +22,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -32,16 +34,25 @@ import com.getcapacitor.annotation.PermissionCallback;
 
 import org.json.JSONObject;
 
+import java.util.regex.Pattern;
+
 // Owns native capture: registers itself as the bridge target, exposes permission
 // + status methods to JS, and forwards captured SMS/notification text into the
 // WebView via the existing window 'spendlens-sms' event (see app/js/app.js).
 @CapacitorPlugin(
   name = "SpendLensCapture",
-  permissions = { @Permission(alias = "sms", strings = { Manifest.permission.RECEIVE_SMS }) }
+  permissions = {
+    @Permission(alias = "sms", strings = { Manifest.permission.RECEIVE_SMS }),
+    @Permission(alias = "readSms", strings = { Manifest.permission.READ_SMS })
+  }
 )
 public class SpendLensCapturePlugin extends Plugin {
 
   private WebView printWebView; // retained so it isn't GC'd before the print job starts
+
+  // A bank alert always names an amount (Rs/INR/₹ + a digit). Used to pull only
+  // financial texts out of the inbox when backfilling, so personal SMS stay unread.
+  private static final Pattern FIN = Pattern.compile("(?:rs\\.?|inr|\\u20B9)\\s*[0-9]", Pattern.CASE_INSENSITIVE);
 
   @Override
   public void load() {
@@ -122,6 +133,60 @@ public class SpendLensCapturePlugin extends Plugin {
   public void drainQueue(PluginCall call) {
     CaptureQueue.drain(getContext());
     call.resolve();
+  }
+
+  // One-time backfill: read EXISTING inbox SMS (READ_SMS) and return the bank ones
+  // ({sender, body, ts}) for the on-device parser. Only amount-bearing texts are
+  // returned (personal SMS are skipped), and ts is the original message date so
+  // imported transactions land on the right day. Capped to the last year / 2000 rows.
+  @PluginMethod
+  public void scanSms(PluginCall call) {
+    if (getPermissionState("readSms") == PermissionState.GRANTED) doScanSms(call);
+    else requestPermissionForAlias("readSms", call, "scanSmsCallback");
+  }
+
+  @PermissionCallback
+  private void scanSmsCallback(PluginCall call) {
+    if (getPermissionState("readSms") == PermissionState.GRANTED) doScanSms(call);
+    else call.reject("read sms permission denied");
+  }
+
+  private void doScanSms(final PluginCall call) {
+    new Thread(() -> {
+      Cursor c = null;
+      try {
+        final long since = System.currentTimeMillis() - 365L * 24 * 60 * 60 * 1000L;
+        c = getContext().getContentResolver().query(
+          Uri.parse("content://sms/inbox"),
+          new String[]{ "address", "body", "date" },
+          "date>=?", new String[]{ String.valueOf(since) }, "date DESC");
+        JSArray msgs = new JSArray();
+        int scanned = 0, matched = 0;
+        if (c != null) {
+          int ai = c.getColumnIndex("address"), bi = c.getColumnIndex("body"), di = c.getColumnIndex("date");
+          while (c.moveToNext() && scanned < 2000) {
+            scanned++;
+            String body = bi >= 0 ? c.getString(bi) : null;
+            if (body == null || !FIN.matcher(body).find()) continue;
+            JSObject m = new JSObject();
+            m.put("sender", ai >= 0 ? c.getString(ai) : "");
+            m.put("body", body);
+            m.put("ts", di >= 0 ? c.getLong(di) : 0L);
+            msgs.put(m);
+            matched++;
+          }
+        }
+        JSObject r = new JSObject();
+        r.put("messages", msgs);
+        r.put("scanned", scanned);
+        r.put("matched", matched);
+        call.resolve(r);
+      } catch (Exception e) {
+        call.reject("scan failed", e);
+      } finally {
+        if (c != null) c.close();
+      }
+    }).start();
   }
 
   // Open a URL (the new APK asset or the release page) in the system handler.

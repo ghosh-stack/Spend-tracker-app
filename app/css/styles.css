@@ -318,6 +318,9 @@ textarea.input { min-height: 120px; resize: vertical; font-family: var(--font-mo
 .cap-oem { color: var(--text-mute); font-size: 12px; margin: 6px 0; }
 .cap-note { font-size: 12.5px; color: var(--text-mute); background: var(--surface2); border-radius: var(--r-md); padding: 11px 13px; }
 .cap-note.ok { color: var(--text-dim); }
+.cap-scan { border: 1px solid var(--hairline); border-radius: var(--r-md); padding: 14px; margin-top: 10px; }
+.cap-scan b { font-size: 14px; }
+.cap-scan p { margin: 6px 0 10px; }
 /* Swipe: vertical scroll stays native; horizontal is captured for swipe-to-act. */
 .feed .row { touch-action: pan-y; will-change: transform; }
 .link-btn { background: none; border: 0; color: var(--accent-text); font: inherit; font-weight: 600; text-decoration: underline; padding: 0 0 0 6px; cursor: pointer; }
