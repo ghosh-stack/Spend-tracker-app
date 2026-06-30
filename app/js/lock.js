@@ -40,8 +40,7 @@ async function verify(pin) {
 }
 
 let showing = false;
-let hiddenAt = 0;
-export function markHidden() { hiddenAt = Date.now(); }
+// Relock immediately on return to foreground when the lock is on.
 export async function maybeRelock() { if (!showing && await isEnabled()) return gate(); }
 
 // Show the lock overlay; resolves when the user unlocks. Financial data is only

@@ -9,7 +9,7 @@ import { rangeStart, summarize } from './queries.js';
 const cap = window.Capacitor;
 const native = !!(cap?.isNativePlatform?.() && cap.Plugins?.LocalNotifications);
 
-const DEFAULTS = { enabled: false, largeTxn: 500000, budgetAlerts: true };
+const DEFAULTS = { enabled: false, largeTxn: 500000, budgetAlerts: true, hideAmounts: false };
 export const getPrefs = async () => ({ ...DEFAULTS, ...(await db.getSetting('notifs', {})) });
 export const setPrefs = (p) => db.setSetting('notifs', p);
 
@@ -44,27 +44,30 @@ export async function onTransaction(txn) {
   const p = await getPrefs();
   if (!p.enabled || txn.direction !== 'debit' || categoryById(txn.category).kind !== 'expense' || txn.excluded) return;
   if (txn.amount >= (p.largeTxn || DEFAULTS.largeTxn)) {
-    fire(`Large spend: ${formatMoney(txn.amount)}`, txn.merchant || categoryById(txn.category).label);
+    if (p.hideAmounts) fire('SpendLens', 'New large transaction — open to view');
+    else fire(`Large spend: ${formatMoney(txn.amount)}`, txn.merchant || categoryById(txn.category).label);
   }
-  if (p.budgetAlerts) await checkBudget(txn.category);
+  if (p.budgetAlerts) await checkBudget(txn.category, p);
 }
 
 // Fire once per category per month on crossing 80% / 100% of its budget.
-async function checkBudget(catId) {
+async function checkBudget(catId, p) {
   const b = (await db.getAll('budgets')).find((x) => x.categoryId === catId);
   if (!b || !b.monthly) return;
   const monthStart = rangeStart('month');
   const all = await db.getAll('transactions');
   const spent = summarize(all.filter((t) => t.ts >= monthStart)).categories.find((c) => c.categoryId === catId)?.amount || 0;
-  const monthKey = new Date().toISOString().slice(0, 7);
+  const d = new Date(); // LOCAL month key, matching rangeStart('month')'s local-time window
+  const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   const state = await db.getSetting('budgetAlertState', {});
   const seen = (state[monthKey] && state[monthKey][catId]) || {};
   const cat = categoryById(catId);
+  const redact = p && p.hideAmounts;
   if (spent >= b.monthly && !seen.exceeded) {
-    fire(`Over budget: ${cat.icon} ${cat.label}`, `Spent ${formatMoney(spent)} of ${formatMoney(b.monthly)} this month`);
+    fire(`Over budget: ${cat.label}`, redact ? 'Open to view' : `Spent ${formatMoney(spent)} of ${formatMoney(b.monthly)} this month`);
     seen.exceeded = true;
   } else if (spent >= b.monthly * 0.8 && !seen.warned) {
-    fire(`${cat.label} budget at ${Math.round((spent / b.monthly) * 100)}%`, `${formatMoney(Math.max(0, b.monthly - spent))} left this month`);
+    fire(`${cat.label} budget at ${Math.round((spent / b.monthly) * 100)}%`, redact ? 'Open to view' : `${formatMoney(Math.max(0, b.monthly - spent))} left this month`);
     seen.warned = true;
   } else return;
   state[monthKey] = { ...(state[monthKey] || {}), [catId]: seen };

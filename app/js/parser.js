@@ -98,11 +98,9 @@ export function merchantAgree(a, b) {
   const ta = new Set(vpaTokens(a));   // 'swiggy@hdfc' and 'SWIGGY LIMITED' share token 'swiggy'
   return vpaTokens(b).some((t) => t.length >= 3 && ta.has(t));
 }
-/** Both present AND no agreement -> a genuine conflict (keep both, flag). */
-export const merchantConflict = (a, b) => {
-  const ka = normMerchantKey(a), kb = normMerchantKey(b);
-  return !!ka && !!kb && !merchantAgree(a, b);
-};
+/** No agreement -> a conflict. (merchantAgree already returns true when either
+ *  side is empty, so an absent merchant is never a conflict.) */
+export const merchantConflict = (a, b) => !merchantAgree(a, b);
 
 const catReCache = new Map();
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

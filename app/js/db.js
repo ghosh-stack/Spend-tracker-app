@@ -14,8 +14,7 @@ const SCHEMA = {
       ['by_category', 'category'],
       ['by_dedupeKey', 'dedupeKey', { unique: true }],
       ['by_account_ts', ['accountId', 'ts']],
-      ['by_amount', 'amount'], // cross-channel dedupe candidate lookup when no account resolved
-      ['by_channels', 'channels', { multiEntry: true }], // "arrived via both SMS + email"
+      ['by_amount', 'amount'], // cross-channel dedupe candidate lookup
     ],
   },
   accounts: { keyPath: 'id', indexes: [['by_bankKey', 'bankKey']] },

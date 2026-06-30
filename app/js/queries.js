@@ -93,7 +93,8 @@ export function series(txns, range, now = Date.now()) {
     }
   } else {
     const step = unit === 'week' ? 7 * DAY : DAY;
-    const n = unit === 'week' ? 13 : Math.max(7, Math.ceil((now - start) / DAY) + 1);
+    // Size from the actual window so the final period is never dropped.
+    const n = Math.max(unit === 'week' ? 4 : 7, Math.ceil((now - start) / step) + 1);
     for (let i = 0; i < n; i++) {
       const ts = start + i * step;
       if (ts > now + step) break;
@@ -205,7 +206,7 @@ export function detectRecurring(txns, now = Date.now()) {
     groups.get(key).push(t);
   }
   const out = [];
-  for (const list of groups.values()) {
+  for (const [groupKey, list] of groups) {
     if (list.length < 3) continue;
     list.sort((a, b) => a.ts - b.ts);
     const days = [];
@@ -233,7 +234,7 @@ export function detectRecurring(txns, now = Date.now()) {
     const confidence = +(0.3 * Math.min(1, days.length / 6) + 0.3 * (1 - Math.min(1, dispersion))
       + 0.25 * (1 - Math.min(1, cv)) + 0.15 * (discretionary ? 0.5 : 1)).toFixed(2);
     out.push({
-      key: cm, displayName,
+      key: groupKey, displayName,
       category, kind: labelKind(category, days), cadence: cad.id, cadenceLabel: cad.label,
       occurrences: days.length, firstTs: days[0].ts, lastTs: last.ts,
       amountMinor: amtMed, amountKind, amountRange: [Math.min(...amounts), Math.max(...amounts)],

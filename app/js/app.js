@@ -34,8 +34,8 @@ async function main() {
   await refreshBadge();
   detectBridge();
 
-  // Lock again when the app goes to the background (immediate by default).
-  document.addEventListener('visibilitychange', () => { if (document.hidden) lock.markHidden(); else lock.maybeRelock(); });
+  // Re-lock immediately on return to the foreground when the lock is on.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) lock.maybeRelock(); });
   window.addEventListener('focus', () => lock.maybeRelock());
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

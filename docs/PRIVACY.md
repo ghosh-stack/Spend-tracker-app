@@ -48,6 +48,11 @@ in-app:
   OS/forensic access to the browser profile could still read it — the lock raises
   the bar against a found/borrowed unlocked phone, nothing more. The raw PIN is
   never stored or logged. Recovery is local-only: restore from an Export, or erase.
+  Caveat: a short numeric PIN is weak against an attacker who can *extract* the
+  hash (from the browser's IndexedDB or an Export file) and brute-force it offline,
+  where the in-app lockout no longer applies — another reason it gates casual
+  access only. Prefer a longer PIN; if you need true at-rest protection, that
+  would require encrypting the stored data with a key derived from the PIN.
 - **Notifications** are fired locally (browser Notifications / Android
   LocalNotifications) — no push server, no egress. They can show amounts on a lock
   screen; keep that in mind, or leave alerts off.

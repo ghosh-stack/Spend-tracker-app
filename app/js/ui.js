@@ -54,7 +54,7 @@ export async function render() {
   updateContext(accounts.length, summary);
 
   if (state.view === 'unparsed') return renderUnparsed();
-  if (state.view === 'recurring') return renderRecurring(txns, acctMap);
+  if (state.view === 'recurring') return renderRecurring(txns);
   if (state.view === 'insights') return renderInsights(txns);
 
   const showCharts = state.view === 'overview';
@@ -553,6 +553,7 @@ async function openSettingsModal() {
       </div>
       <label class="lab" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="notifEnabled" ${np.enabled ? 'checked' : ''}> Spending alerts (large transactions & budgets)</label>
       <label class="lab">Large-transaction alert above (₹)<input class="input mono" id="largeTxn" type="number" min="0" step="500" value="${(np.largeTxn || 500000) / 100}"></label>
+      <label class="lab" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="hideAmounts" ${np.hideAmounts ? 'checked' : ''}> Hide amounts in notifications (lock-screen privacy)</label>
     </div>
     <div class="modal-foot"><button class="btn primary" type="submit">Done</button></div>
   </form>`);
@@ -569,7 +570,7 @@ async function openSettingsModal() {
     const enabled = m.querySelector('#notifEnabled').checked;
     const largeTxn = Math.round((parseFloat(m.querySelector('#largeTxn').value) || 5000) * 100);
     if (enabled && !(await notify.requestPermission())) toast('Allow notifications in your browser/system settings');
-    await notify.setPrefs({ ...np, enabled, largeTxn });
+    await notify.setPrefs({ ...np, enabled, largeTxn, hideAmounts: m.querySelector('#hideAmounts').checked });
     closeModal(); toast('Saved');
   });
 }

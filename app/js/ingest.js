@@ -2,7 +2,7 @@
 // account -> dedupe at transaction -> store atomically -> notify the UI.
 // The pure extraction lives in parser.js; this file is the side-effecting glue.
 import * as db from './db.js';
-import { parseMessage, buildDedupeKey, normalizeRef, merchantConflict } from './parser.js';
+import { parseMessage, normalizeRef, merchantConflict } from './parser.js';
 import { PARSE_RULES, CATEGORIZE_RULES } from './rules.js';
 
 // Same transaction can arrive via SMS and email hours apart; collapse within this window.
@@ -129,7 +129,7 @@ export async function ingestRaw(msg) {
     || cands.find((c) => (c.mergedKeys || []).includes(txn.dedupeKey)); // a 3rd copy of an already-merged txn
 
   if (existing) {
-    const merged = mergeInto(existing, txn, { id, source, sender });
+    const merged = mergeInto(existing, txn);
     await db.put('transactions', merged);
     await db.put('raw_messages', rawRec('parsed', existing.id));
     emit({ type: 'transaction', txn: merged, merged: true });
@@ -137,8 +137,7 @@ export async function ingestRaw(msg) {
   }
 
   const soft = cands.find((c) => c.id !== txn.id && classifyMatch(c, txn) === 'soft');
-  if (soft) txn.possibleDuplicateOf = soft.id; // Tier 3: likely dup, keep both + flag for review
-  txn.sources = [{ channel: txn.channel, source, sender, rawMessageId: id, ts: txn.ts, ref: txn.ref }];
+  if (soft) txn.possibleDuplicateOf = soft.id; // likely dup, keep both + flag for review
   txn.channels = [txn.channel];
   txn.mergedKeys = [txn.dedupeKey];
 
@@ -156,24 +155,26 @@ export async function ingestRaw(msg) {
 // 'merge' (same txn, fold together) | 'soft' (likely dup, keep both + flag) | null
 function classifyMatch(existing, txn) {
   if (existing.amount !== txn.amount || existing.direction !== txn.direction) return null;
-  // Tier 1: exact bank reference — strongest cross-channel signal (UPI RRN in both).
+  // Tier 1: identical bank reference — same txn regardless of channel/time gap.
   if (txn.ref && existing.ref && normalizeRef(txn.ref) === normalizeRef(existing.ref)) return 'merge';
-  // Tiers 2/3: same account tail, different channel, within the time window.
+  // Same account (full id, OR same bank + last4 — never across banks that merely
+  // share a last-4), within the time window.
   const sameTail = existing.accountId === txn.accountId
-    || (!!existing.accountLast4 && existing.accountLast4 === txn.accountLast4);
-  const crossChannel = (existing.channel || existing.source) !== (txn.channel || txn.source);
+    || ((existing.bankKey || '') === (txn.bankKey || '') && !!existing.accountLast4 && existing.accountLast4 === txn.accountLast4);
   const inWindow = Math.abs(existing.ts - txn.ts) <= CROSS_CHANNEL_WINDOW_MS;
-  if (!(sameTail && crossChannel && inWindow)) return null;
-  return merchantConflict(existing.merchant, txn.merchant) ? 'soft' : 'merge';
+  if (!(sameTail && inWindow)) return null;
+  if (merchantConflict(existing.merchant, txn.merchant)) return 'soft';
+  // Cross-channel agreement is a confident merge; a same-channel, ref-less near
+  // duplicate is only FLAGGED (could be two real same-amount spends) — never auto-merged.
+  const crossChannel = (existing.channel || existing.source) !== (txn.channel || txn.source);
+  return crossChannel ? 'merge' : 'soft';
 }
 
-const dedupBy = (arr, key) => {
-  const seen = new Set();
-  return arr.filter((x) => { const k = key(x); return seen.has(k) ? false : (seen.add(k), true); });
-};
-
-// Fold the new parse into the existing row; the richer source fills gaps.
-function mergeInto(existing, txn, msg) {
+// Fold the new parse into the existing row; the richer source fills gaps. The
+// dedupeKey is intentionally NOT recomputed — the existing row keeps its already-
+// unique key so the put can't collide with another row (cross-channel matching
+// uses classifyMatch, not the key); mergedKeys records the merged-in key.
+function mergeInto(existing, txn) {
   const E = { ...existing };
   E.ts = Math.min(E.ts, txn.ts); // earliest is closest to the real swipe time
   const merchScore = (m) => (!m ? 0 : m.includes('@') ? 1 : 2 + m.length / 100); // human name beats VPA
@@ -184,11 +185,8 @@ function mergeInto(existing, txn, msg) {
   if (E.categorySource !== 'manual' && txn.categorySource === 'rule' && E.categorySource !== 'rule') {
     E.category = txn.category; E.categorySource = 'rule';
   }
-  const prior = E.sources || [{ channel: existing.channel || existing.source, source: existing.source, sender: existing.sender || '', rawMessageId: existing.rawMessageId, ts: existing.ts, ref: existing.ref }];
-  E.sources = dedupBy([...prior, { channel: txn.channel, source: msg.source, sender: msg.sender || '', rawMessageId: msg.id, ts: txn.ts, ref: txn.ref }], (s) => s.rawMessageId);
-  E.channels = [...new Set(E.sources.map((s) => s.channel))].sort();
-  E.mergedKeys = [...new Set([...(E.mergedKeys || [existing.dedupeKey]), txn.dedupeKey])];
-  E.dedupeKey = buildDedupeKey(E); // recompute from best fields (same primary key row)
+  E.channels = [...new Set([...(existing.channels || [existing.channel]), txn.channel])].sort();
+  E.mergedKeys = [...new Set([...(existing.mergedKeys || [existing.dedupeKey]), txn.dedupeKey])];
   E.mergedAt = Date.now();
   return E;
 }
@@ -206,7 +204,7 @@ export async function addManualTxn({ amount, direction = 'debit', merchant = '',
     amount, currency: 'INR', direction, ts,
     merchant, rawMerchant: merchant, category, categorySource: 'manual',
     ref: '', method, bankKey: '', accountLast4: '',
-    source: 'manual', channel: 'manual', sender: '', sources: [], channels: ['manual'],
+    source: 'manual', channel: 'manual', sender: '', channels: ['manual'],
     dedupeKey: `manual|${uuid()}`, createdAt: Date.now(), notes,
   };
   await db.put('transactions', txn);
