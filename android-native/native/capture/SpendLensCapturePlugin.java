@@ -92,13 +92,13 @@ public class SpendLensCapturePlugin extends Plugin {
     // restricted-settings "blocked" (must go via App info → Allow restricted settings).
     String smsState;
     if (getPermissionState("sms") == PermissionState.GRANTED) smsState = "granted";
-    else if (getActivity() != null && getActivity().shouldShowRequestPermissionRationale(Manifest.permission.RECEIVE_SMS)) smsState = "denied";
+    else if (Build.VERSION.SDK_INT >= 23 && getActivity() != null && getActivity().shouldShowRequestPermissionRationale(Manifest.permission.RECEIVE_SMS)) smsState = "denied";
     else smsState = "blocked";
     r.put("sms", smsState);
     r.put("notificationAccess", NotificationManagerCompat.getEnabledListenerPackages(getContext())
       .contains(getContext().getPackageName()));
     r.put("sdk", Build.VERSION.SDK_INT);
-    r.put("manufacturer", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.toLowerCase());
+    r.put("manufacturer", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.toLowerCase(java.util.Locale.ROOT));
     call.resolve(r);
   }
 
@@ -148,7 +148,9 @@ public class SpendLensCapturePlugin extends Plugin {
   public void printContent(PluginCall call) {
     final String html = call.getString("html", "");
     final String jobName = call.getString("jobName", "SpendLens Report");
-    getActivity().runOnUiThread(() -> {
+    final android.app.Activity act = getActivity();
+    if (act == null) { call.reject("no activity"); return; } // else the call would leak
+    act.runOnUiThread(() -> {
       try {
         final WebView wv = new WebView(getContext());
         wv.setWebViewClient(new WebViewClient() {
@@ -158,14 +160,14 @@ public class SpendLensCapturePlugin extends Plugin {
               PrintManager pm = (PrintManager) getContext().getSystemService(Context.PRINT_SERVICE);
               PrintDocumentAdapter adapter = view.createPrintDocumentAdapter(jobName);
               pm.print(jobName, adapter, new PrintAttributes.Builder().build());
+              call.resolve(); // resolve only once the print job is actually handed off
             } catch (Exception e) {
               call.reject("print failed", e);
             }
           }
         });
         wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-        printWebView = wv; // retain
-        call.resolve();
+        printWebView = wv; // retain until printing
       } catch (Exception e) {
         call.reject("print init failed", e);
       }
