@@ -1,9 +1,15 @@
 package app.spendlens.capture;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintManager;
 import android.provider.Settings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 
 import androidx.core.app.NotificationManagerCompat;
 
@@ -33,6 +39,8 @@ import org.json.JSONObject;
   permissions = { @Permission(alias = "sms", strings = { Manifest.permission.RECEIVE_SMS }) }
 )
 public class SpendLensCapturePlugin extends Plugin {
+
+  private WebView printWebView; // retained so it isn't GC'd before the print job starts
 
   @Override
   public void load() {
@@ -106,6 +114,37 @@ public class SpendLensCapturePlugin extends Plugin {
     } catch (Exception e) {
       call.reject("cannot open url", e);
     }
+  }
+
+  // Render an HTML document in an offscreen WebView and hand it to Android's
+  // PrintManager (user picks "Save as PDF" / a printer). Used by the PDF report
+  // export (app/js/report.js). Runs on the UI thread (WebView requirement).
+  @PluginMethod
+  public void printContent(PluginCall call) {
+    final String html = call.getString("html", "");
+    final String jobName = call.getString("jobName", "SpendLens Report");
+    getActivity().runOnUiThread(() -> {
+      try {
+        final WebView wv = new WebView(getContext());
+        wv.setWebViewClient(new WebViewClient() {
+          @Override
+          public void onPageFinished(WebView view, String url) {
+            try {
+              PrintManager pm = (PrintManager) getContext().getSystemService(Context.PRINT_SERVICE);
+              PrintDocumentAdapter adapter = view.createPrintDocumentAdapter(jobName);
+              pm.print(jobName, adapter, new PrintAttributes.Builder().build());
+            } catch (Exception e) {
+              call.reject("print failed", e);
+            }
+          }
+        });
+        wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+        printWebView = wv; // retain
+        call.resolve();
+      } catch (Exception e) {
+        call.reject("print init failed", e);
+      }
+    });
   }
 
   // Fetch the latest GitHub release JSON on a background thread (network on the

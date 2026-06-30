@@ -279,3 +279,6 @@ textarea.input { min-height: 120px; resize: vertical; font-family: var(--font-mo
 .bn-item:active, .bn-fab:active { transform: scale(.94); }
 .bn-fab { background: var(--grad-accent); box-shadow: 0 8px 22px var(--accent-soft), var(--hi); }
 @supports not (backdrop-filter: blur(1px)) { .topbar, .bottomnav { background: var(--surface); } }
+.rp-presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.rp-preset { padding: 9px 15px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--surface2); color: var(--text-dim); font: inherit; font-size: 13px; min-height: 40px; }
+.rp-preset[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; font-weight: 600; }

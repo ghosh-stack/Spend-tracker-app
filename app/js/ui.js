@@ -11,6 +11,7 @@ import { formatMoney, splitMoney, toMinor } from './money.js';
 import { CATEGORIES, categoryById } from './rules.js';
 import { checkForUpdate, openDownload, currentVersion } from './update.js';
 import { icon, brandMark } from './icons.js';
+import { exportReport, PRESETS } from './report.js';
 
 const $ = (sel) => document.querySelector(sel);
 const RANGES = [['week', 'Week'], ['month', 'Month'], ['quarter', 'Quarter'], ['year', 'Year'], ['all', 'All']];
@@ -486,6 +487,7 @@ async function onClick(e) {
     case 'menu': openMenuModal(); break;
     case 'settings': openSettingsModal(); break;
     case 'updates': openUpdatesModal(); break;
+    case 'report': openReportModal(); break;
     case 'breakdown': if (state.breakdown !== t.dataset.mode) { state.breakdown = t.dataset.mode; render(); } break;
     case 'edit': openEditModal(id); break;
     case 'filtertxn': state.view = 'transactions'; state.category = t.dataset.cat; state.search = ''; render(); break;
@@ -617,9 +619,41 @@ function openMenuModal() {
       <button class="btn" data-action="import">Import file (.json / .csv)</button>
       <button class="btn" data-action="sample">Load demo data</button>
       <button class="btn" data-action="export">Export my data</button>
+      <button class="btn" data-action="report">📄 Export PDF report</button>
       <button class="btn" data-action="updates">⟳ Check for updates</button>
       <button class="btn" data-action="erase" style="color:var(--negative)">Erase all data</button>
     </div>`);
+}
+
+// PDF report export: pick a period, build the report on-device, open print → Save as PDF.
+function openReportModal() {
+  const presets = PRESETS.map(([v, l], i) => `<button type="button" class="rp-preset" data-preset="${v}" aria-pressed="${i === 1}">${esc(l)}</button>`).join('');
+  openModal(`<div class="modal-head"><h3>Export PDF report</h3><button class="btn ghost icon" data-action="close" aria-label="Close">✕</button></div>
+    <div class="modal-body">
+      <p class="hint">Pick a period. SpendLens builds the report on-device and opens your print dialog — choose “Save as PDF”.</p>
+      <div class="rp-presets">${presets}</div>
+      <div id="rpCustom" hidden class="grid2">
+        <label class="lab">From<input class="input" type="date" id="rpFrom"></label>
+        <label class="lab">To<input class="input" type="date" id="rpTo"></label>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-action="close">Cancel</button>
+      <button class="btn primary" id="rpGo">Generate PDF</button></div>`);
+  const m = $('#modal');
+  let preset = 'month';
+  m.querySelectorAll('.rp-preset').forEach((b) => b.addEventListener('click', () => {
+    preset = b.dataset.preset;
+    m.querySelectorAll('.rp-preset').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    m.querySelector('#rpCustom').hidden = preset !== 'custom';
+  }));
+  m.querySelector('#rpGo').addEventListener('click', async () => {
+    const from = m.querySelector('#rpFrom') ? m.querySelector('#rpFrom').value : '';
+    const to = m.querySelector('#rpTo') ? m.querySelector('#rpTo').value : '';
+    if (preset === 'custom' && !from && !to) { toast('Pick a date range'); return; }
+    closeModal();
+    toast('Building report…');
+    try { await exportReport(preset, from, to); } catch (e) { toast("Couldn't build the report"); }
+  });
 }
 
 // In-app updater: shows the running version and checks GitHub Releases for a

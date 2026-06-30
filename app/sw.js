@@ -8,7 +8,7 @@ const SHELL = [
   'js/app.js', 'js/ui.js', 'js/db.js', 'js/ingest.js', 'js/parser.js',
   'js/rules.js', 'js/money.js', 'js/queries.js', 'js/charts.js',
   'js/lock.js', 'js/notify.js', 'js/native-capture.js',
-  'js/version.js', 'js/update.js', 'js/icons.js',
+  'js/version.js', 'js/update.js', 'js/icons.js', 'js/report.js',
   'data/sample-notifications.json',
   'icons/icon.svg',
 ];

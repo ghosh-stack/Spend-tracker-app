@@ -45,6 +45,8 @@ window.SpendLensNative = {
   // 'self'); returns { code, body } where body is the raw JSON string.
   checkUpdate: (repo) => Plugin.checkUpdate({ repo }),
   openExternal: (url) => { Plugin.openExternal({ url }).catch(() => {}); },
+  // Print an HTML document to PDF via Android's PrintManager (see report.js).
+  printContent: (html, jobName) => { Plugin.printContent({ html, jobName }).catch(() => {}); },
   reonboard: async () => { await setPref('onboarded', ''); return onboard(); },
 };
 
